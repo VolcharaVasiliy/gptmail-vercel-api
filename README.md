@@ -42,6 +42,8 @@ All POST endpoints accept:
 }
 ```
 
+If `prefix` and `domain` are omitted or empty, GPTMail generates both values randomly.
+
 `/api/refresh-auth`, `/api/list`, and `/api/clear` also accept:
 
 ```json
