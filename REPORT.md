@@ -5,6 +5,9 @@
 - Split the reusable HTTP client from the desktop tool and removed local mailbox index/state file dependencies from the server boundary.
 - Added a FastAPI entrypoint for Vercel with bearer-token protection.
 - Created the GitHub repository `VolcharaVasiliy/gptmail-vercel-api` and prepared the project for first push.
+- Pushed the initial commit to `origin/main`.
+- Switched the repository visibility to `public`.
+- Added explicit README note that empty `prefix` and `domain` keep random mailbox/domain generation.
 
 ## Files
 - `gptmail_api/client.py` - stateless GPTMail client with `from_state_payload()` and `export_state()`.
@@ -43,3 +46,7 @@
   - `GET /health` -> `200`
   - `POST /api/generate` -> `200`
   - `POST /api/generate` then `POST /api/list` -> `200`
+- Git checks:
+  - `git status --short --branch` -> `main...origin/main`
+  - `git log -1 --oneline` -> `06ff776 Initial stateless GPTMail Vercel API`
+  - GitHub visibility check -> `VolcharaVasiliy/gptmail-vercel-api`, `private=False`, `visibility=public`
