@@ -6,3 +6,4 @@ __pycache__/
 .env
 .vercel/
 vercel-preview-deployments-*.json
+.vercel
