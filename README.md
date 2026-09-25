@@ -1,11 +1,28 @@
 # gptmail-vercel-api
 
-Stateless GPTMail proxy API for Vercel.
+Stateless GPTMail proxy API **with a built-in web panel** for Vercel.
 
 Updated for the 2026 GPTMail protocol (mail.chatgpt.org.uk): the old
 server-side `POST /api/generate-email` endpoint is gone, and GPTMail now
 requires a **verified browser session** before a mailbox can be created or
 read.
+
+## Web panel
+
+Open the deployment root (`https://your-app.vercel.app/`) — a small control
+panel serves there:
+
+- the `state` (verified session + mailbox) is kept in browser localStorage,
+  so the panel survives reloads;
+- when a call hits `428 browser_verification_required`, the panel opens the
+  verification section by itself: click "Скопировать консольный скрипт",
+  paste it into the F12 console on mail.chatgpt.org.uk, then paste the
+  token back into the panel;
+- one button creates a mailbox (identity username + random active domain,
+  custom prefix/domain optional), the inbox auto-refreshes every 15 s,
+  letters open in a full view, and there is a clear-inbox button;
+- "Скопировать state" gives you the exact `{"state": ...}` body to reuse
+  the session in curl/scripts.
 
 ## Design
 
@@ -37,11 +54,13 @@ This project keeps Vercel stateless:
 ## How the browser verification is handled
 
 A serverless function cannot solve Turnstile itself, so a verified session
-must come from the caller. The easiest path is the ready-made console
-script **[tools/gptmail-token.js](tools/gptmail-token.js)**:
+must come from the caller. The web panel and the ready-made console script
+**[tools/gptmail-token.js](tools/gptmail-token.js)** (also served at
+`/tools/gptmail-token.js` for the panel's copy button) cover it:
 
-1. Open https://mail.chatgpt.org.uk in a browser.
-2. Press F12 → Console, paste the script contents, hit Enter.
+1. Open mail.chatgpt.org.uk in a browser.
+2. Press F12 → Console, paste the script contents (the panel can copy it
+   for you), hit Enter.
 3. A small Turnstile widget flashes top-right, and the console copies
    either the fresh token or (if you filled in `API_BASE` inside the
    script) the ready-to-use `state` to the clipboard.
@@ -63,11 +82,13 @@ Manually, the same result comes from either:
    ```
 
 2. **Turnstile token exchange.** Render a Cloudflare Turnstile widget with
-   the sitekey returned by `GET /` (action `inbox_browser_verification`)
-   on any page served from mail.chatgpt.org.uk, then POST the token to
-   `/api/verify-browser`. The API exchanges it via GPTMail's
-   `POST /api/browser-verification`, keeps the resulting cookies in
-   `state`, and every later call reuses them.
+   the sitekey returned by `GET /info` (action
+   `inbox_browser_verification`) on any page served from
+   mail.chatgpt.org.uk, then POST the token to `/api/verify-browser`. The
+   API exchanges it via GPTMail's `POST /api/browser-verification`, keeps
+   the resulting cookies in `state`, and every later call reuses them.
+   (The widget cannot be rendered on the API's own domain — GPTMail locks
+   the sitekey to mail.chatgpt.org.uk with Turnstile error 110200.)
 
 Requests made before verification answer `428` with
 `browser_verification_required`, the current `turnstile_sitekey`, and the
@@ -78,7 +99,10 @@ straight from the GPTMail page.
 
 ## Endpoints
 
+- `GET /` — the web panel
+- `GET /info` — service info: version, `turnstile_sitekey`, endpoint list
 - `GET /health`
+- `GET /tools/gptmail-token.js` — the console helper script
 - `POST /api/verify-browser` — exchange a Turnstile token for session cookies
 - `POST /api/refresh-auth`
 - `POST /api/generate`
@@ -166,11 +190,16 @@ python -m uvicorn api.index:app --reload
 
 ## Example
 
-Daily flow with the console script (API_BASE left empty — token mode):
+Daily flow with the web panel: open `https://your-app.vercel.app/`, click
+"Создать ящик" — on the first 428 the panel opens the verification section;
+copy the console script there, run it on mail.chatgpt.org.uk, paste the
+token, and continue. The panel keeps the session and mailbox in the
+browser afterwards.
+
+The same flow over the raw API — exchange the token from the console
+script:
 
 ```bash
-# paste tools/gptmail-token.js into the F12 console on mail.chatgpt.org.uk,
-# then exchange the copied token:
 curl -X POST https://your-app.vercel.app/api/verify-browser \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \

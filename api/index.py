@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 from pydantic import BaseModel, Field
 
 from gptmail_api import (
@@ -18,6 +19,8 @@ from gptmail_api import (
 )
 
 app = FastAPI(title="GPTMail Vercel API", version="0.2.0")
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # The browser console helper (tools/gptmail-token.js) can exchange a Turnstile
 # token directly from the GPTMail page, so the API must be callable cross-origin.
@@ -157,7 +160,25 @@ def handle(client: GptMailClient, action) -> Any:
     return response_payload(client=client, result=result)
 
 
+def _serve_project_file(relative_path: str, media_type: str) -> Response:
+    file_path = PROJECT_ROOT / relative_path
+    try:
+        return Response(content=file_path.read_bytes(), media_type=media_type)
+    except OSError as exc:
+        raise HTTPException(status_code=404, detail=f"File not found: {relative_path}") from exc
+
+
 @app.get("/")
+def web_ui() -> Response:
+    return _serve_project_file("site/index.html", "text/html; charset=utf-8")
+
+
+@app.get("/tools/gptmail-token.js")
+def console_helper() -> Response:
+    return _serve_project_file("tools/gptmail-token.js", "text/javascript; charset=utf-8")
+
+
+@app.get("/info")
 def root() -> dict[str, Any]:
     return {
         "ok": True,

@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPTMail API — панель</title>
+<style>
+  :root {
+    --bg: #0f172a; --card: #1e293b; --card2: #24324a; --line: #334155;
+    --text: #e2e8f0; --muted: #94a3b8; --accent: #3b82f6; --accent2: #2563eb;
+    --ok: #22c55e; --warn: #f59e0b; --err: #ef4444;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
+  header h1 { font-size: 22px; margin: 0; }
+  header .ver { color: var(--muted); font-size: 13px; }
+  a { color: var(--accent); }
+  section {
+    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 16px; margin-bottom: 16px;
+  }
+  section h2 { margin: 0 0 10px; font-size: 16px; }
+  section h2 small { color: var(--muted); font-weight: normal; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button {
+    background: var(--accent2); border: 0; color: #fff; border-radius: 8px;
+    padding: 8px 14px; font: inherit; cursor: pointer;
+  }
+  button:hover { filter: brightness(1.1); }
+  button.ghost { background: var(--card2); border: 1px solid var(--line); color: var(--text); }
+  button.danger { background: transparent; border: 1px solid var(--err); color: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+  input, textarea {
+    background: var(--card2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+  }
+  textarea { min-height: 84px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
+  .email {
+    font-family: ui-monospace, Consolas, monospace; font-size: 17px;
+    background: var(--card2); border: 1px dashed var(--line); border-radius: 8px;
+    padding: 10px 12px; word-break: break-all; display: flex; justify-content: space-between; gap: 8px; align-items: center;
+  }
+  .muted { color: var(--muted); font-size: 13px; }
+  .status { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
+  .msg {
+    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0;
+    cursor: pointer; background: var(--card2);
+  }
+  .msg:hover { border-color: var(--accent); }
+  .msg .from { font-weight: 600; }
+  .msg .subj { }
+  .msg .date { color: var(--muted); font-size: 12px; }
+  details { margin-top: 8px; }
+  summary { cursor: pointer; color: var(--muted); }
+  pre {
+    background: var(--card2); border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; overflow: auto; font-size: 12px; max-height: 340px;
+  }
+  iframe.mailbody {
+    width: 100%; min-height: 320px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
+  }
+  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.on { color: var(--ok); border-color: var(--ok); }
+  .pill.off { color: var(--err); border-color: var(--err); }
+  .hidden { display: none; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>GPTMail API — панель</h1>
+    <span class="ver" id="ver"></span>
+    <span style="flex:1"></span>
+    <span class="pill" id="sessPill">сессия: нет</span>
+  </header>
+
+  <section id="secVerify" class="hidden">
+    <h2>Верификация браузера <small>— нужна раз в сутки (~24 ч)</small></h2>
+    <p class="muted">
+      GPTMail требует капча-верификацию Cloudflare, которую сервер пройти не может.
+      Откройте <b>mail.chatgpt.org.uk</b>, нажмите F12 → Console, вставьте скрипт
+      (кнопка ниже скопирует его в буфер), получите токен и вставьте его сюда.
+      Либо вставьте готовый <code>state</code>, если пользовались режимом API_BASE.
+    </p>
+    <div class="row" style="margin-bottom:8px">
+      <button class="ghost" id="btnCopyScript">Скопировать консольный скрипт</button>
+      <span class="muted">вставить в консоль F12 на mail.chatgpt.org.uk</span>
+    </div>
+    <textarea id="verifyInput" placeholder="Сюда: Turnstile-токен (0.zgk...) ИЛИ весь state JSON"></textarea>
+    <div class="row" style="margin-top:8px">
+      <button id="btnVerify">Проверить / сохранить</button>
+    </div>
+    <div class="status" id="verifyStatus"></div>
+  </section>
+
+  <section>
+    <h2>Почтовый ящик</h2>
+    <div id="noMailbox" class="muted">Ящик ещё не создан.</div>
+    <div id="mailboxBox" class="hidden">
+      <div class="email">
+        <span id="mailAddr"></span>
+        <button class="ghost" id="btnCopyMail" title="Скопировать адрес">⧉</button>
+      </div>
+      <div class="muted" id="mailIdentity" style="margin-top:6px"></div>
+    </div>
+    <details style="margin-top:8px" id="genOpts">
+      <summary>свой префикс / домен (необязательно)</summary>
+      <div class="cols" style="margin-top:8px">
+        <input id="genPrefix" placeholder="префикс, напр. ivanov2026">
+        <input id="genDomain" placeholder="домен, напр. busmail.app">
+      </div>
+    </details>
+    <div class="row" style="margin-top:10px">
+      <button id="btnGenerate">Создать ящик</button>
+      <span class="muted">имя берётся из генератора личностей сайта, домен — случайный активный</span>
+    </div>
+    <div class="status" id="genStatus"></div>
+  </section>
+
+  <section>
+    <h2>Входящие <small id="inboxMeta"></small></h2>
+    <div class="row">
+      <button id="btnRefresh">Обновить</button>
+      <label class="muted"><input type="checkbox" id="autoRefresh" style="width:auto" checked> автообновление (15 с)</label>
+      <span style="flex:1"></span>
+      <button class="danger" id="btnClear">Очистить ящик</button>
+    </div>
+    <div id="inboxList" style="margin-top:10px"></div>
+    <div id="mailView" class="hidden" style="margin-top:12px">
+      <div class="row" style="align-items:baseline">
+        <h2 style="margin:0" id="mvSubject"></h2>
+        <span style="flex:1"></span>
+        <button class="ghost" id="btnCloseMail">← назад</button>
+      </div>
+      <div class="muted" id="mvMeta"></div>
+      <div id="mvBody" style="margin-top:10px"></div>
+      <details><summary>сырой JSON письма</summary><pre id="mvRaw"></pre></details>
+    </div>
+    <div class="status" id="inboxStatus"></div>
+  </section>
+
+  <section>
+    <h2>Сессия (state) <small>— хранится в этом браузере</small></h2>
+    <div class="row">
+      <button class="ghost" id="btnCopyState">Скопировать state</button>
+      <button class="ghost" id="btnPasteState">Вставить state</button>
+      <button class="ghost danger" id="btnResetState">Сбросить</button>
+    </div>
+    <details><summary>показать state</summary><pre id="stateView"></pre></details>
+    <div class="muted" style="margin-top:8px">
+      Для запросов к API вне этой панели: <code>{"state": ...}</code> — содержимое из кнопки «Скопировать state».
+    </div>
+    <div class="status" id="stateStatus"></div>
+  </section>
+</div>
+
+<script>
+"use strict";
+const LS_KEY = "gptmail_vercel_api_state";
+let STATE = null;
+let TIMER = null;
+let MESSAGES = [];
+
+const $ = (id) => document.getElementById(id);
+const setStatus = (id, text, cls) => { const el = $(id); el.textContent = text || ""; el.className = "status " + (cls || ""); };
+
+async function api(path, body) {
+  const payload = Object.assign({}, body || {}, STATE ? { state: STATE } : {});
+  const resp = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  let data = null;
+  try { data = await resp.json(); } catch (e) { data = null; }
+  if (resp.status === 428 || (data && data.error === "browser_verification_required")) {
+    $("secVerify").classList.remove("hidden");
+    setStatus("verifyStatus", "Требуется верификация браузера (428). Получите токен скриптом и вставьте выше.", "warn");
+    throw new Error("browser_verification_required");
+  }
+  if (!resp.ok) throw new Error((data && (data.detail || data.error)) || "HTTP " + resp.status);
+  if (data && data.state) { STATE = data.state; saveState(); }
+  return data;
+}
+
+function saveState() {
+  if (STATE) localStorage.setItem(LS_KEY, JSON.stringify(STATE));
+  else localStorage.removeItem(LS_KEY);
+  renderState();
+}
+
+function renderState() {
+  const pill = $("sessPill");
+  $("stateView").textContent = STATE ? JSON.stringify(STATE, null, 2) : "— пусто —";
+  if (STATE) {
+    const exp = STATE.auth && STATE.auth.expires_at ? STATE.auth.expires_at : 0;
+    const hasVerified = (STATE.cookies || []).some(c => c.name === "gm_browser_verified");
+    pill.textContent = "сессия: " + (hasVerified ? "verified" : "без верификации");
+    pill.className = "pill " + (hasVerified ? "on" : "off");
+    $("mailAddr").textContent = STATE.last_email || "—";
+    $("mailboxBox").classList.toggle("hidden", !STATE.last_email);
+    $("noMailbox").classList.toggle("hidden", !!STATE.last_email);
+  } else {
+    pill.textContent = "сессия: нет"; pill.className = "pill off";
+    $("mailboxBox").classList.add("hidden");
+    $("noMailbox").classList.remove("hidden");
+  }
+}
+
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) return navigator.clipboard.writeText(text);
+  const ta = document.createElement("textarea");
+  ta.value = text; document.body.appendChild(ta); ta.select();
+  document.execCommand("copy"); ta.remove();
+  return Promise.resolve();
+}
+
+async function generate() {
+  setStatus("genStatus", "Создаю ящик…");
+  try {
+    const body = { prefix: $("genPrefix").value.trim(), domain: $("genDomain").value.trim() };
+    const data = await api("/api/generate", body);
+    const r = data.result || {};
+    $("mailAddr").textContent = r.email || "";
+    const id = r.identity || {};
+    $("mailIdentity").textContent = id.full_name ? ("личность: " + id.full_name + (id.username ? " · " + id.username : "")) : "";
+    setStatus("genStatus", "Ящик готов ✔", "ok");
+    MESSAGES = []; renderInbox(); refreshInbox(true);
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("genStatus", "Ошибка: " + e.message, "err");
+  }
+}
+
+async function refreshInbox(silent) {
+  if (!STATE || !(STATE.last_email || (STATE.auth && STATE.auth.email))) {
+    setStatus("inboxStatus", "Сначала создайте ящик.", "warn");
+    return;
+  }
+  if (!silent) setStatus("inboxStatus", "Обновляю…");
+  try {
+    const data = await api("/api/list");
+    const r = data.result || {};
+    MESSAGES = r.messages || [];
+    $("inboxMeta").textContent = "— " + (r.count || 0) + " писем";
+    renderInbox();
+    setStatus("inboxStatus", silent ? "" : "Обновлено ✔", "ok");
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+  }
+}
+
+function pick(m, keys) { for (const k of keys) { if (m[k] !== undefined && m[k] !== null && m[k] !== "") return m[k]; } return ""; }
+
+function renderInbox() {
+  const box = $("inboxList");
+  if (!MESSAGES.length) { box.innerHTML = '<div class="muted">Писем нет.</div>'; return; }
+  box.innerHTML = "";
+  MESSAGES.forEach((m, i) => {
+    const div = document.createElement("div");
+    div.className = "msg";
+    const from = pick(m, ["from", "from_address", "email_address", "sender"]);
+    const subj = pick(m, ["subject", "title"]);
+    const date = pick(m, ["date", "received_at", "created_at", "timestamp"]);
+    div.innerHTML = '<div class="from"></div><div class="subj"></div><div class="date"></div>';
+    div.children[0].textContent = from || "(без отправителя)";
+    div.children[1].textContent = subj || "(без темы)";
+    div.children[2].textContent = date || "";
+    div.onclick = () => openMail(i);
+    box.appendChild(div);
+  });
+}
+
+async function openMail(i) {
+  const m = MESSAGES[i];
+  const id = pick(m, ["id", "email_id", "uid"]);
+  if (!id) { setStatus("inboxStatus", "У письма нет id.", "err"); return; }
+  setStatus("inboxStatus", "Загружаю письмо…");
+  try {
+    const data = await api("/api/email", { email_id: id });
+    const full = (data.result && data.result.message) || m;
+    $("mvSubject").textContent = pick(full, ["subject", "title"]) || "(без темы)";
+    $("mvMeta").textContent =
+      "от: " + (pick(full, ["from", "from_address", "email_address", "sender"]) || "?") +
+      " · " + (pick(full, ["date", "received_at", "created_at"]) || "");
+    const html = pick(full, ["html", "body_html", "content_html"]);
+    const text = pick(full, ["text", "body", "content", "plain_text", "content_text"]);
+    const bodyEl = $("mvBody");
+    bodyEl.innerHTML = "";
+    if (html && /<[a-z][\s\S]*>/i.test(html)) {
+      const f = document.createElement("iframe");
+      f.className = "mailbody";
+      f.setAttribute("sandbox", "");
+      bodyEl.appendChild(f);
+      f.srcdoc = html;
+    } else {
+      const pre = document.createElement("pre");
+      pre.textContent = text || JSON.stringify(full, null, 2);
+      bodyEl.appendChild(pre);
+    }
+    $("mvRaw").textContent = JSON.stringify(full, null, 2);
+    $("mailView").classList.remove("hidden");
+    $("inboxList").classList.add("hidden");
+    setStatus("inboxStatus", "");
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+  }
+}
+
+async function verifyInput() {
+  const raw = $("verifyInput").value.trim();
+  if (!raw) { setStatus("verifyStatus", "Вставьте токен или state.", "warn"); return; }
+  setStatus("verifyStatus", "Пробую…");
+  if (raw.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(raw);
+      STATE = parsed.state || parsed;
+      saveState();
+      setStatus("verifyStatus", "State сохранён ✔", "ok");
+      $("verifyInput").value = "";
+      refreshInbox(true);
+      return;
+    } catch (e) { setStatus("verifyStatus", "Это не JSON и не токен: " + e.message, "err"); return; }
+  }
+  try {
+    await api("/api/verify-browser", { turnstile_token: raw });
+    setStatus("verifyStatus", "Верификация пройдена ✔ сессия на ~24 ч", "ok");
+    $("verifyInput").value = "";
+    if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("verifyStatus", "Ошибка: " + e.message, "err");
+  }
+}
+
+async function clearInbox() {
+  if (!confirm("Удалить все письма в этом ящике?")) return;
+  try {
+    await api("/api/clear");
+    setStatus("inboxStatus", "Ящик очищен ✔", "ok");
+    refreshInbox(true);
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+  }
+}
+
+function setAuto(on) {
+  if (TIMER) { clearInterval(TIMER); TIMER = null; }
+  if (on) TIMER = setInterval(() => refreshInbox(true), 15000);
+}
+
+$("btnGenerate").onclick = generate;
+$("btnRefresh").onclick = () => refreshInbox(false);
+$("btnClear").onclick = clearInbox;
+$("btnVerify").onclick = verifyInput;
+$("btnCloseMail").onclick = () => { $("mailView").classList.add("hidden"); $("inboxList").classList.remove("hidden"); };
+$("autoRefresh").onchange = (e) => setAuto(e.target.checked);
+$("btnCopyMail").onclick = () => copyText($("mailAddr").textContent).then(() => setStatus("genStatus", "Адрес скопирован ✔", "ok"));
+$("btnCopyState").onclick = () => copyText(JSON.stringify({ state: STATE }, null, 2)).then(() => setStatus("stateStatus", "Скопировано ✔", "ok"));
+$("btnPasteState").onclick = async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    $("verifyInput").value = text;
+    $("secVerify").classList.remove("hidden");
+    setStatus("stateStatus", "Вставлено в поле верификации — нажмите «Проверить / сохранить».", "");
+  } catch (e) { setStatus("stateStatus", "Не удалось прочитать буфер: " + e.message, "err"); }
+};
+$("btnResetState").onclick = () => { if (confirm("Забыть сессию и ящик в этом браузере?")) { STATE = null; saveState(); MESSAGES = []; renderInbox(); setStatus("stateStatus", "Сброшено.", "warn"); } };
+$("btnCopyScript").onclick = async () => {
+  try {
+    const resp = await fetch("/tools/gptmail-token.js");
+    const text = await resp.text();
+    await copyText(text);
+    setStatus("verifyStatus", "Скрипт скопирован — вставьте в консоль F12 на mail.chatgpt.org.uk ✔", "ok");
+  } catch (e) { setStatus("verifyStatus", "Не удалось загрузить скрипт: " + e.message, "err"); }
+};
+
+(async function init() {
+  try {
+    const r = await fetch("/info");
+    const info = await r.json();
+    $("ver").textContent = "v" + info.version + " · sitekey: " + info.turnstile_sitekey;
+  } catch (e) { $("ver").textContent = ""; }
+  try { STATE = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { STATE = null; }
+  renderState();
+  if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
+  setAuto($("autoRefresh").checked);
+})();
+</script>
+</body>
+</html>
