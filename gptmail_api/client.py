@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import random
+import string
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -17,7 +19,23 @@ DEFAULT_USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) "
     "Chrome/134.0.0.0 Safari/537.36"
 )
+# Cloudflare Turnstile sitekey the GPTMail frontend uses for
+# "inbox_browser_verification". Override with GPTMAIL_TURNSTILE_SITEKEY.
+DEFAULT_TURNSTILE_SITEKEY = "0x4AAAAAAD9zdhyrcm6dCJRt"
 REFRESH_BUFFER_SECONDS = 60
+
+
+class BrowserVerificationRequired(RuntimeError):
+    """GPTMail answered 428 browser_verification_required.
+
+    The caller must pass either a fresh Turnstile token (see sitekey) so the
+    client can call POST /api/browser-verification, or seed the session with
+    a verified cookie (gm_browser_verified) captured from a real browser.
+    """
+
+    def __init__(self, message: str = "Browser verification required", sitekey: str = "") -> None:
+        super().__init__(message)
+        self.sitekey = sitekey
 
 
 @dataclass
@@ -74,6 +92,7 @@ class GptMailClient:
         timeout: float = 20.0,
         network_attempts: int = 3,
         user_agent: str = DEFAULT_USER_AGENT,
+        turnstile_sitekey: str = DEFAULT_TURNSTILE_SITEKEY,
         session: requests.Session | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
@@ -81,6 +100,7 @@ class GptMailClient:
         self.timeout = timeout
         self.network_attempts = max(1, int(network_attempts))
         self.user_agent = user_agent
+        self.turnstile_sitekey = turnstile_sitekey
         self.session = session or requests.Session()
         self.auth = AuthState()
         self.last_email = ""
@@ -99,6 +119,7 @@ class GptMailClient:
         *,
         timeout: float = 20.0,
         user_agent: str = DEFAULT_USER_AGENT,
+        turnstile_sitekey: str = DEFAULT_TURNSTILE_SITEKEY,
     ) -> "GptMailClient":
         payload = payload or {}
         client = cls(
@@ -107,6 +128,7 @@ class GptMailClient:
             timeout=float(payload.get("timeout") or timeout),
             network_attempts=int(payload.get("network_attempts") or 3),
             user_agent=user_agent,
+            turnstile_sitekey=turnstile_sitekey,
         )
         client.auth = AuthState.from_payload(payload.get("auth"))
         client.last_email = str(payload.get("last_email") or client.auth.email or "").strip().lower()
@@ -153,16 +175,19 @@ class GptMailClient:
         raw = str(email_or_slug or "").strip().lower()
         if not raw:
             return ""
+        # Current inbox URLs are /{language}/{local}@{domain}
         if "@" in raw:
-            local_part, domain = raw.split("@", 1)
-            return f"{local_part}--{domain}"
-        return raw
+            return raw
+        return raw.replace("--", "@", 1)
 
     def _mail_referrer(self, email_or_slug: str | None = None) -> str:
         slug = self._mail_slug(email_or_slug)
         if slug:
             return f"{self.base_url}/{self.language}/{slug}"
         return f"{self.base_url}/{self.language}/"
+
+    def _has_verification_cookie(self) -> bool:
+        return any(cookie.name == "gm_browser_verified" for cookie in self.session.cookies)
 
     def _should_refresh(self, email: str | None = None) -> bool:
         normalized = str(email or "").strip().lower()
@@ -202,7 +227,6 @@ class GptMailClient:
             "Accept": "application/json, text/plain, */*",
             "Referer": self._mail_referrer(email_hint or self.auth.email or self.last_email),
             "Origin": self.base_url,
-            "Connection": "close",
         }
         if json_body is not None:
             headers["Content-Type"] = "application/json"
@@ -218,6 +242,15 @@ class GptMailClient:
         )
 
         payload = self._decode_json(response)
+
+        if response.status_code == 428 and isinstance(payload, dict):
+            data = payload.get("data") or {}
+            if data.get("code") == "browser_verification_required":
+                raise BrowserVerificationRequired(
+                    str(payload.get("error") or "Browser verification required"),
+                    sitekey=self.turnstile_sitekey,
+                )
+
         self._sync_auth(payload)
 
         if require_auth and retry_on_auth_error and response.status_code in (401, 403):
@@ -269,10 +302,62 @@ class GptMailClient:
             url=self.base_url + "/",
             headers={
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                "Connection": "close",
             },
         )
         response.raise_for_status()
+
+    def verify_browser(self, turnstile_token: str) -> dict[str, Any]:
+        """Exchange a Cloudflare Turnstile token for the verification cookie."""
+        token = str(turnstile_token or "").strip()
+        if not token:
+            raise ValueError("Turnstile token is required")
+        response = self._send_request(
+            method="POST",
+            url=self.base_url + "/api/browser-verification",
+            json={"turnstile_token": token},
+            headers={
+                "Accept": "application/json, text/plain, */*",
+                "Content-Type": "application/json",
+                "Referer": self._mail_referrer(),
+                "Origin": self.base_url,
+            },
+        )
+        payload = self._decode_json(response)
+        if not response.ok or not payload.get("success"):
+            message = payload.get("error") or f"Browser verification failed (HTTP {response.status_code})"
+            raise RuntimeError(message)
+        return payload
+
+    def list_public_domains(self) -> list[str]:
+        result = self._request(
+            "GET",
+            "/api/domains/public",
+            params={"view": "bootstrap"},
+            require_auth=False,
+            retry_on_auth_error=False,
+        )
+        data = result.get("data") or {}
+        domains = []
+        for item in data.get("domains") or []:
+            if not isinstance(item, dict):
+                continue
+            if item.get("is_active") in (0, False, None) and item.get("is_active") is not None:
+                continue
+            name = str(item.get("domain_name") or "").strip().lower()
+            if name:
+                domains.append(name)
+        return domains
+
+    def generate_identity(self) -> dict[str, Any]:
+        result = self._request(
+            "GET",
+            "/api/generate-identity",
+            require_auth=False,
+            retry_on_auth_error=False,
+        )
+        # The identity endpoint returns the object directly, not {success, data}.
+        data = result.get("data") if isinstance(result.get("data"), dict) else result
+        return data or {}
 
     def refresh_auth(self, email: str | None = None) -> dict[str, Any]:
         self.warmup()
@@ -293,39 +378,68 @@ class GptMailClient:
         self._sync_auth(result)
         return result
 
-    def generate_email(self, *, prefix: str | None = None, domain: str | None = None) -> dict[str, Any]:
-        if not self.auth.token:
-            self.refresh_auth()
+    def generate_email(
+        self,
+        *,
+        prefix: str | None = None,
+        domain: str | None = None,
+        use_identity: bool = True,
+    ) -> dict[str, Any]:
+        """Compose a new address and claim its mailbox.
+
+        GPTMail no longer offers a server-side "generate email" endpoint:
+        the address is assembled from an identity username (or custom prefix)
+        plus a public domain, then claimed via POST /api/inbox-token.
+        """
+        identity: dict[str, Any] = {}
+
         normalized_prefix = str(prefix or "").strip()
         normalized_domain = str(domain or "").strip().lower()
-        payload: dict[str, Any] | None = None
-        if normalized_prefix or normalized_domain:
-            payload = {}
-            if normalized_prefix:
-                payload["prefix"] = normalized_prefix
-            if normalized_domain:
-                payload["domain"] = normalized_domain
-        method = "POST" if payload else "GET"
+
+        if not normalized_prefix and use_identity:
+            try:
+                identity = self.generate_identity()
+                normalized_prefix = str(identity.get("username") or "").strip()
+            except RuntimeError:
+                normalized_prefix = ""
+        if not normalized_prefix:
+            normalized_prefix = (
+                "user"
+                + "".join(random.choices(string.ascii_lowercase, k=4))
+                + "".join(random.choices(string.digits, k=3))
+            )
+
+        if not normalized_domain:
+            domains = self.list_public_domains()
+            if not domains:
+                raise RuntimeError("No public domains available from GPTMail")
+            normalized_domain = random.choice(domains)
+
+        email = f"{normalized_prefix}@{normalized_domain}".strip().lower()
+
+        # Claiming the mailbox requires the browser-verification cookie; the
+        # 428 from inbox-token propagates as BrowserVerificationRequired.
         result = self._request(
-            method,
-            "/api/generate-email",
-            json_body=payload,
-            email_hint=self.auth.email or self.last_email,
+            "POST",
+            "/api/inbox-token",
+            json_body={"email": email, "include_emails": True},
+            email_hint=email,
+            require_auth=False,
+            retry_on_auth_error=False,
         )
         if not result.get("success"):
             raise RuntimeError(result.get("error") or "Failed to generate email")
 
         data = result.get("data") or {}
-        email = str(data.get("email") or result.get("email") or "").strip().lower()
-        if not email:
-            raise RuntimeError("API did not return an email address")
-
-        self.last_email = email
+        created = str(data.get("email") or email).strip().lower()
+        self.last_email = created
         if not self.auth.email:
-            self.auth.email = email
+            self.auth.email = created
+
         return {
             "success": True,
-            "email": email,
+            "email": created,
+            "identity": identity,
             "data": data,
             "auth": self.auth.as_dict(),
         }
@@ -347,6 +461,27 @@ class GptMailClient:
             "email": resolved,
             "count": len(messages),
             "messages": messages,
+            "raw": result,
+        }
+
+    def get_email(self, email_id: str, email: str | None = None) -> dict[str, Any]:
+        """Fetch a single full letter (body/html) by its id."""
+        resolved = str(email or self.last_email or self.auth.email or "").strip().lower()
+        if not resolved:
+            raise ValueError("Email is required for get_email")
+        if not str(email_id or "").strip():
+            raise ValueError("Email id is required for get_email")
+        result = self._request(
+            "GET",
+            f"/api/email/{str(email_id).strip()}",
+            params={"email": resolved, "include_raw": 0},
+            email_hint=resolved,
+        )
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        return {
+            "success": bool(result.get("success", True)),
+            "email": resolved,
+            "message": data,
             "raw": result,
         }
 
