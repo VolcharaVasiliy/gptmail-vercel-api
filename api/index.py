@@ -5,6 +5,7 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -17,6 +18,16 @@ from gptmail_api import (
 )
 
 app = FastAPI(title="GPTMail Vercel API", version="0.2.0")
+
+# The browser console helper (tools/gptmail-token.js) can exchange a Turnstile
+# token directly from the GPTMail page, so the API must be callable cross-origin.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["*"],
+    allow_credentials=False,
+)
 
 
 def turnstile_sitekey() -> str:

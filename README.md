@@ -37,12 +37,26 @@ This project keeps Vercel stateless:
 ## How the browser verification is handled
 
 A serverless function cannot solve Turnstile itself, so a verified session
-must come from the caller:
+must come from the caller. The easiest path is the ready-made console
+script **[tools/gptmail-token.js](tools/gptmail-token.js)**:
 
-1. **Cookie seeding (simplest).** Open mail.chatgpt.org.uk in a browser
-   once, copy the `gm_browser_verified` cookie value (valid for ~1 day),
-   and send it in the request. The API stores it in `state`, mints the
-   mailbox, and returns the updated `state`.
+1. Open https://mail.chatgpt.org.uk in a browser.
+2. Press F12 → Console, paste the script contents, hit Enter.
+3. A small Turnstile widget flashes top-right, and the console copies
+   either the fresh token or (if you filled in `API_BASE` inside the
+   script) the ready-to-use `state` to the clipboard.
+
+That one paste covers roughly a day of use (`gm_browser_verified` is valid
+~24 h). Afterwards the API keeps the session alive by itself: inbox tokens
+are short-lived but are refreshed automatically, so no further browser
+steps are needed until the verification cookie expires.
+
+Manually, the same result comes from either:
+
+1. **Cookie seeding.** Open mail.chatgpt.org.uk, copy the
+   `gm_browser_verified` cookie value (DevTools → Application → Cookies —
+   the cookie is httpOnly, so `document.cookie` won't show it), and send
+   it in the request:
 
    ```json
    { "cookies": [{ "name": "gm_browser_verified", "value": "eyJ..." }] }
@@ -58,6 +72,9 @@ must come from the caller:
 Requests made before verification answer `428` with
 `browser_verification_required`, the current `turnstile_sitekey`, and the
 partially-updated `state`.
+
+CORS is open (`*`), so the console script can talk to your deployment
+straight from the GPTMail page.
 
 ## Endpoints
 
@@ -149,13 +166,27 @@ python -m uvicorn api.index:app --reload
 
 ## Example
 
-Generate a mailbox from an empty state (requires a verified session cookie):
+Daily flow with the console script (API_BASE left empty — token mode):
+
+```bash
+# paste tools/gptmail-token.js into the F12 console on mail.chatgpt.org.uk,
+# then exchange the copied token:
+curl -X POST https://your-app.vercel.app/api/verify-browser \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
+  -d '{"turnstile_token": "0.zgk..."}'
+```
+
+The response `state` is your session for the day — reuse it in every
+request body.
+
+Generate a mailbox from that state:
 
 ```bash
 curl -X POST https://your-app.vercel.app/api/generate \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer YOUR_TOKEN" \
-  -d '{"cookies":[{"name":"gm_browser_verified","value":"eyJ..."}]}'
+  -d '{"state": {}}'
 ```
 
 List the inbox using the returned state:
@@ -167,7 +198,7 @@ curl -X POST https://your-app.vercel.app/api/list \
   -d '{"state": {}}'
 ```
 
-(the `state` from `/api/generate` goes into the body as-is)
+(the `state` from the previous response goes into the body as-is)
 
 Read one letter:
 
