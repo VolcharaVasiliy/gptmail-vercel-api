@@ -1,173 +1,356 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>GPTMail API — панель</title>
+<title>gptmail · api panel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #0f172a; --card: #1e293b; --card2: #24324a; --line: #334155;
-    --text: #e2e8f0; --muted: #94a3b8; --accent: #3b82f6; --accent2: #2563eb;
-    --ok: #22c55e; --warn: #f59e0b; --err: #ef4444;
+    --ink: #111;
+    --muted: #666;
+    --faint: #999;
+    --rule: #ccc;
+    --wash: #f4f4f4;
+    --term: #090909;
+    --ok: #14691b;
+    --err: #a11;
+    --bg: #fff;
+    --radius: 8px;
+    --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; background: var(--bg); color: var(--text);
-    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    margin: 0; padding: 0; background: var(--bg); color: var(--ink);
+    font: 14px/1.6 var(--mono);
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 64px; }
-  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 20px; flex-wrap: wrap; }
-  header h1 { font-size: 22px; margin: 0; }
-  header .ver { color: var(--muted); font-size: 13px; }
-  a { color: var(--accent); }
-  section {
-    background: var(--card); border: 1px solid var(--line); border-radius: 12px;
-    padding: 16px; margin-bottom: 16px;
+  .wrap { max-width: 780px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  header {
+    display: flex; align-items: baseline; gap: 14px;
+    padding-bottom: 14px; border-bottom: 1px solid var(--rule);
+    flex-wrap: wrap;
   }
-  section h2 { margin: 0 0 10px; font-size: 16px; }
-  section h2 small { color: var(--muted); font-weight: normal; }
-  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  button {
-    background: var(--accent2); border: 0; color: #fff; border-radius: 8px;
-    padding: 8px 14px; font: inherit; cursor: pointer;
+  .wordmark { font-size: 18px; font-weight: 700; letter-spacing: -0.02em; }
+  .wordmark span { color: var(--faint); font-weight: 400; }
+  header .spacer { flex: 1; }
+  .pill {
+    font-size: 11px; padding: 1px 10px; border: 1px solid var(--rule);
+    border-radius: 999px; color: var(--muted);
   }
-  button:hover { filter: brightness(1.1); }
-  button.ghost { background: var(--card2); border: 1px solid var(--line); color: var(--text); }
-  button.danger { background: transparent; border: 1px solid var(--err); color: var(--err); }
-  button:disabled { opacity: .5; cursor: default; }
+  .pill.on { border-color: var(--ok); color: var(--ok); }
+  .pill.off { border-color: var(--err); color: var(--err); }
+  .lang { font-size: 12px; }
+  .lang button {
+    border: 0; background: none; padding: 2px 4px; cursor: pointer;
+    font: inherit; color: var(--faint); text-decoration: none;
+  }
+  .lang button.cur { color: var(--ink); font-weight: 700; text-decoration: underline; }
+
+  section { padding: 18px 0 20px; border-bottom: 1px solid var(--rule); }
+  section:last-of-type { border-bottom: 0; }
+  h2 {
+    font-size: 11px; font-weight: 500; text-transform: uppercase;
+    letter-spacing: 0.14em; color: var(--muted); margin: 0 0 12px;
+  }
+  h2 small { text-transform: none; letter-spacing: 0; color: var(--faint); }
+  .muted { color: var(--muted); font-size: 12.5px; }
+  .faint { color: var(--faint); font-size: 12px; }
+  a { color: var(--ink); }
+
+  button.act {
+    font: 12.5px var(--mono); padding: 6px 14px; border-radius: 5px;
+    border: 1px solid var(--ink); background: var(--bg); color: var(--ink);
+    cursor: pointer;
+  }
+  button.act:hover { background: var(--wash); }
+  button.act.primary { background: var(--ink); color: #fff; }
+  button.act.primary:hover { background: #000; }
+  button.act.danger { border-color: var(--err); color: var(--err); background: var(--bg); }
+  button.act.danger:hover { background: #fbeaea; }
+  button.act:disabled { opacity: 0.45; cursor: default; }
+  button.mini { font: inherit; font-size: 11.5px; padding: 2px 8px; border: 1px solid var(--rule); border-radius: 5px; background: var(--bg); color: var(--muted); cursor: pointer; }
+  button.mini:hover { border-color: var(--ink); color: var(--ink); }
+
   input, textarea {
-    background: var(--card2); border: 1px solid var(--line); color: var(--text);
-    border-radius: 8px; padding: 8px 10px; font: inherit; width: 100%;
+    font: 13px var(--mono); width: 100%;
+    background: var(--wash); color: var(--ink);
+    border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 8px 10px;
   }
-  textarea { min-height: 84px; resize: vertical; font-family: ui-monospace, Consolas, monospace; font-size: 13px; }
-  .email {
-    font-family: ui-monospace, Consolas, monospace; font-size: 17px;
-    background: var(--card2); border: 1px dashed var(--line); border-radius: 8px;
-    padding: 10px 12px; word-break: break-all; display: flex; justify-content: space-between; gap: 8px; align-items: center;
-  }
-  .muted { color: var(--muted); font-size: 13px; }
-  .status { font-size: 13px; margin-top: 6px; white-space: pre-wrap; }
-  .ok { color: var(--ok); } .warn { color: var(--warn); } .err { color: var(--err); }
-  .msg {
-    border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin: 8px 0;
-    cursor: pointer; background: var(--card2);
-  }
-  .msg:hover { border-color: var(--accent); }
-  .msg .from { font-weight: 600; }
-  .msg .subj { }
-  .msg .date { color: var(--muted); font-size: 12px; }
-  details { margin-top: 8px; }
-  summary { cursor: pointer; color: var(--muted); }
-  pre {
-    background: var(--card2); border: 1px solid var(--line); border-radius: 8px;
-    padding: 10px; overflow: auto; font-size: 12px; max-height: 340px;
-  }
-  iframe.mailbody {
-    width: 100%; min-height: 320px; border: 1px solid var(--line); border-radius: 8px; background: #fff;
-  }
-  .pill { display: inline-block; padding: 2px 10px; border-radius: 999px; font-size: 12px; border: 1px solid var(--line); color: var(--muted); }
-  .pill.on { color: var(--ok); border-color: var(--ok); }
-  .pill.off { color: var(--err); border-color: var(--err); }
-  .hidden { display: none; }
+  input:focus, textarea:focus { outline: 1px solid var(--ink); }
+  textarea { min-height: 76px; resize: vertical; white-space: pre; }
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-  @media (max-width: 640px) { .cols { grid-template-columns: 1fr; } }
+  @media (max-width: 620px) { .cols { grid-template-columns: 1fr; } }
+
+  .addrbox {
+    display: flex; align-items: center; gap: 10px;
+    background: var(--wash); border: 1px solid var(--rule);
+    border-radius: var(--radius); padding: 10px 12px; margin-bottom: 10px;
+  }
+  .addrbox code { font-size: 15px; font-weight: 500; word-break: break-all; flex: 1; }
+
+  .term {
+    background: var(--term); color: #d7d7d7; border-radius: var(--radius);
+    padding: 12px 14px; font-size: 12.5px; overflow: auto;
+  }
+
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row .grow { flex: 1; }
+
+  .status { font-size: 12px; margin-top: 8px; white-space: pre-wrap; min-height: 1em; }
+  .status.ok { color: var(--ok); }
+  .status.warn { color: var(--muted); }
+  .status.err { color: var(--err); }
+
+  table.inbox { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.inbox td { border-top: 1px solid var(--rule); padding: 7px 8px 7px 0; vertical-align: top; }
+  table.inbox tr:hover td { background: var(--wash); cursor: pointer; }
+  table.inbox .d { color: var(--faint); font-size: 11px; white-space: nowrap; }
+  table.inbox .s { font-weight: 500; }
+  table.inbox .f { color: var(--muted); }
+
+  details { margin-top: 10px; }
+  summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+  pre {
+    background: var(--wash); border: 1px solid var(--rule); border-radius: var(--radius);
+    padding: 10px; overflow: auto; font-size: 11.5px; max-height: 320px;
+  }
+  iframe.mailhtml { width: 100%; min-height: 340px; border: 1px solid var(--rule); border-radius: var(--radius); background: #fff; }
+  .hidden { display: none; }
+  footer { margin-top: 26px; text-align: center; color: var(--faint); font-size: 11px; }
+  footer .sep { margin: 0 6px; color: var(--rule); }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
-    <h1>GPTMail API — панель</h1>
-    <span class="ver" id="ver"></span>
-    <span style="flex:1"></span>
-    <span class="pill" id="sessPill">сессия: нет</span>
+    <div class="wordmark">gptmail<span>-api</span></div>
+    <span class="pill" id="sessPill">—</span>
+    <span class="spacer"></span>
+    <span class="lang">
+      <button id="langEN">en</button> / <button id="langRU">ru</button>
+    </span>
   </header>
 
   <section id="secVerify" class="hidden">
-    <h2>Верификация браузера <small>— нужна раз в сутки (~24 ч)</small></h2>
-    <p class="muted">
-      GPTMail требует капча-верификацию Cloudflare, которую сервер пройти не может.
-      Откройте <b>mail.chatgpt.org.uk</b>, нажмите F12 → Console, вставьте скрипт
-      (кнопка ниже скопирует его в буфер), получите токен и вставьте его сюда.
-      Либо вставьте готовый <code>state</code>, если пользовались режимом API_BASE.
-    </p>
-    <div class="row" style="margin-bottom:8px">
-      <button class="ghost" id="btnCopyScript">Скопировать консольный скрипт</button>
-      <span class="muted">вставить в консоль F12 на mail.chatgpt.org.uk</span>
+    <h2 data-i="verifyTitle">Browser verification <small>— required once every ~24 h</small></h2>
+    <p class="muted" data-i="verifyHelp"></p>
+    <div class="row" style="margin-bottom:10px">
+      <button class="mini" id="btnCopyScript" data-i="copyScript">copy console script</button>
+      <span class="faint" data-i="copyScriptHint"></span>
     </div>
-    <textarea id="verifyInput" placeholder="Сюда: Turnstile-токен (0.zgk...) ИЛИ весь state JSON"></textarea>
-    <div class="row" style="margin-top:8px">
-      <button id="btnVerify">Проверить / сохранить</button>
+    <textarea id="verifyInput" data-i-ph="verifyPlaceholder"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="act primary" id="btnVerify" data-i="verifyBtn">verify / save</button>
     </div>
     <div class="status" id="verifyStatus"></div>
   </section>
 
   <section>
-    <h2>Почтовый ящик</h2>
-    <div id="noMailbox" class="muted">Ящик ещё не создан.</div>
+    <h2 data-i="mailboxTitle">Mailbox</h2>
+    <div id="noMailbox" class="muted" data-i="noMailbox"></div>
     <div id="mailboxBox" class="hidden">
-      <div class="email">
-        <span id="mailAddr"></span>
-        <button class="ghost" id="btnCopyMail" title="Скопировать адрес">⧉</button>
+      <div class="addrbox">
+        <code id="mailAddr"></code>
+        <button class="mini" id="btnCopyMail" title="copy">⧉</button>
       </div>
-      <div class="muted" id="mailIdentity" style="margin-top:6px"></div>
+      <div class="faint" id="mailIdentity"></div>
     </div>
-    <details style="margin-top:8px" id="genOpts">
-      <summary>свой префикс / домен (необязательно)</summary>
+    <details style="margin-top:10px" id="genOpts">
+      <summary data-i="genOpts">custom prefix / domain (optional)</summary>
       <div class="cols" style="margin-top:8px">
-        <input id="genPrefix" placeholder="префикс, напр. ivanov2026">
-        <input id="genDomain" placeholder="домен, напр. busmail.app">
+        <input id="genPrefix" data-i-ph="genPrefix">
+        <input id="genDomain" data-i-ph="genDomain">
       </div>
     </details>
-    <div class="row" style="margin-top:10px">
-      <button id="btnGenerate">Создать ящик</button>
-      <span class="muted">имя берётся из генератора личностей сайта, домен — случайный активный</span>
+    <div class="row" style="margin-top:12px">
+      <button class="act primary" id="btnGenerate" data-i="generateBtn">create mailbox</button>
+      <span class="faint" data-i="generateHint"></span>
     </div>
     <div class="status" id="genStatus"></div>
   </section>
 
   <section>
-    <h2>Входящие <small id="inboxMeta"></small></h2>
-    <div class="row">
-      <button id="btnRefresh">Обновить</button>
-      <label class="muted"><input type="checkbox" id="autoRefresh" style="width:auto" checked> автообновление (15 с)</label>
-      <span style="flex:1"></span>
-      <button class="danger" id="btnClear">Очистить ящик</button>
+    <h2><span data-i="inboxTitle">Inbox</span> <small id="inboxMeta"></small></h2>
+    <div class="row" style="margin-bottom:10px">
+      <button class="act" id="btnRefresh" data-i="refreshBtn">refresh</button>
+      <label class="muted"><input type="checkbox" id="autoRefresh" style="width:auto" checked> <span data-i="autoRefresh">auto (15 s)</span></label>
+      <span class="grow"></span>
+      <button class="act danger" id="btnClear" data-i="clearBtn">clear inbox</button>
     </div>
-    <div id="inboxList" style="margin-top:10px"></div>
-    <div id="mailView" class="hidden" style="margin-top:12px">
-      <div class="row" style="align-items:baseline">
-        <h2 style="margin:0" id="mvSubject"></h2>
-        <span style="flex:1"></span>
-        <button class="ghost" id="btnCloseMail">← назад</button>
+    <div id="inboxList"></div>
+    <div id="mailView" class="hidden" style="margin-top:14px">
+      <div class="row" style="align-items:baseline; margin-bottom:4px">
+        <strong id="mvSubject" style="font-size:14px"></strong>
+        <span class="grow"></span>
+        <button class="mini" id="btnCloseMail" data-i="backBtn">← back</button>
       </div>
-      <div class="muted" id="mvMeta"></div>
+      <div class="faint" id="mvMeta"></div>
       <div id="mvBody" style="margin-top:10px"></div>
-      <details><summary>сырой JSON письма</summary><pre id="mvRaw"></pre></details>
+      <details><summary data-i="rawJson">raw JSON</summary><pre id="mvRaw"></pre></details>
     </div>
     <div class="status" id="inboxStatus"></div>
   </section>
 
   <section>
-    <h2>Сессия (state) <small>— хранится в этом браузере</small></h2>
+    <h2 data-i="sessionTitle">Session (state) <small>— stored in this browser</small></h2>
     <div class="row">
-      <button class="ghost" id="btnCopyState">Скопировать state</button>
-      <button class="ghost" id="btnPasteState">Вставить state</button>
-      <button class="ghost danger" id="btnResetState">Сбросить</button>
+      <button class="mini" id="btnCopyState" data-i="copyState">copy state</button>
+      <button class="mini" id="btnPasteState" data-i="pasteState">paste state</button>
+      <button class="mini" id="btnResetState" data-i="resetState">reset</button>
     </div>
-    <details><summary>показать state</summary><pre id="stateView"></pre></details>
-    <div class="muted" style="margin-top:8px">
-      Для запросов к API вне этой панели: <code>{"state": ...}</code> — содержимое из кнопки «Скопировать state».
-    </div>
+    <details><summary data-i="showState">show state</summary><pre id="stateView"></pre></details>
+    <p class="faint" data-i="sessionHint"></p>
     <div class="status" id="stateStatus"></div>
   </section>
+
+  <footer>
+    <span id="ftVersion"></span><span class="sep">·</span><span data-i="footerNote"></span>
+  </footer>
 </div>
 
 <script>
 "use strict";
-const LS_KEY = "gptmail_vercel_api_state";
+const LS_STATE = "gptmail_vercel_api_state";
+const LS_LANG = "gptmail_panel_lang";
 let STATE = null;
 let TIMER = null;
 let MESSAGES = [];
+
+const I18N = {
+  en: {
+    verifyTitle: 'Browser verification <small>— required once every ~24 h</small>',
+    verifyHelp: 'GPTMail gates mailbox creation behind a Cloudflare Turnstile check a server cannot pass. Open <b>mail.chatgpt.org.uk</b>, press F12 → Console, paste the script (the button below copies it), and put the resulting token here. A full ready-made "state" also works.',
+    copyScript: 'copy console script',
+    copyScriptHint: 'paste it into the F12 console on mail.chatgpt.org.uk',
+    verifyPlaceholder: 'Turnstile token (0.zgk...) OR the whole state JSON',
+    verifyBtn: 'verify / save',
+    mailboxTitle: 'Mailbox',
+    noMailbox: 'No mailbox yet.',
+    genOpts: 'custom prefix / domain (optional)',
+    genPrefix: 'prefix, e.g. ivanov2026',
+    genDomain: 'domain, e.g. busmail.app',
+    generateBtn: 'create mailbox',
+    generateHint: 'name comes from the site identity generator, domain is a random active one',
+    inboxTitle: 'Inbox',
+    refreshBtn: 'refresh',
+    autoRefresh: 'auto (15 s)',
+    clearBtn: 'clear inbox',
+    noLetters: 'No letters.',
+    backBtn: '← back',
+    rawJson: 'raw JSON',
+    sessionTitle: 'Session (state) <small>— stored in this browser</small>',
+    copyState: 'copy state',
+    pasteState: 'paste state',
+    resetState: 'reset',
+    showState: 'show state',
+    sessionHint: 'For API calls outside this panel, use the copied object as the request body: {"state": ...}',
+    footerNote: 'stateless GPTMail proxy · sessions stay with the caller',
+    needVerify: 'Verification required (428). Get a token with the script above.',
+    noMailboxYet: 'Create a mailbox first.',
+    generating: 'Creating mailbox…',
+    mailboxReady: 'Mailbox ready ✔',
+    identityLabel: 'identity: ',
+    refreshing: 'Refreshing…',
+    refreshed: 'Refreshed ✔',
+    loadingLetter: 'Loading letter…',
+    cleared: 'Inbox cleared ✔',
+    clearConfirm: 'Delete all letters in this mailbox?',
+    resetConfirm: 'Forget the session and mailbox stored in this browser?',
+    copiedAddr: 'Address copied ✔',
+    copiedState: 'Copied ✔',
+    copiedScript: 'Script copied — paste it into the F12 console on mail.chatgpt.org.uk ✔',
+    scriptFail: 'Failed to load the script: ',
+    clipFail: 'Clipboard failed: ',
+    pastedHint: 'Pasted into the verification field — press "verify / save".',
+    stateSaved: 'State saved ✔',
+    verified: 'Verified ✔ session lasts ~24 h',
+    resetDone: 'Reset.',
+    empty: '— empty —',
+    sessNone: 'session: none',
+    sessNo: 'session: unverified',
+    sessYes: 'session: verified',
+    letters: 'letters',
+    noSubject: '(no subject)',
+    noFrom: '(no sender)',
+    errPrefix: 'Error: ',
+    noMailId: 'The letter has no id.',
+  },
+  ru: {
+    verifyTitle: 'Верификация браузера <small>— нужна раз в сутки (~24 ч)</small>',
+    verifyHelp: 'GPTMail закрывает создание ящиков капчей Cloudflare, которую сервер пройти не может. Откройте <b>mail.chatgpt.org.uk</b>, нажмите F12 → Console, вставьте скрипт (кнопка ниже копирует его в буфер) и внесите полученный токен сюда. Также можно вставить готовый "state".',
+    copyScript: 'скопировать консольный скрипт',
+    copyScriptHint: 'вставить в консоль F12 на mail.chatgpt.org.uk',
+    verifyPlaceholder: 'Turnstile-токен (0.zgk...) ИЛИ весь state JSON',
+    verifyBtn: 'проверить / сохранить',
+    mailboxTitle: 'Почтовый ящик',
+    noMailbox: 'Ящик ещё не создан.',
+    genOpts: 'свой префикс / домен (необязательно)',
+    genPrefix: 'префикс, напр. ivanov2026',
+    genDomain: 'домен, напр. busmail.app',
+    generateBtn: 'создать ящик',
+    generateHint: 'имя берётся из генератора личностей сайта, домен — случайный активный',
+    inboxTitle: 'Входящие',
+    refreshBtn: 'обновить',
+    autoRefresh: 'авто (15 с)',
+    clearBtn: 'очистить ящик',
+    noLetters: 'Писем нет.',
+    backBtn: '← назад',
+    rawJson: 'сырой JSON',
+    sessionTitle: 'Сессия (state) <small>— хранится в этом браузере</small>',
+    copyState: 'скопировать state',
+    pasteState: 'вставить state',
+    resetState: 'сбросить',
+    showState: 'показать state',
+    sessionHint: 'Для запросов к API вне этой панели используйте скопированный объект как тело запроса: {"state": ...}',
+    footerNote: 'stateless-прокси GPTMail · сессии остаются у вызывающего',
+    needVerify: 'Требуется верификация (428). Получите токен скриптом выше.',
+    noMailboxYet: 'Сначала создайте ящик.',
+    generating: 'Создаю ящик…',
+    mailboxReady: 'Ящик готов ✔',
+    identityLabel: 'личность: ',
+    refreshing: 'Обновляю…',
+    refreshed: 'Обновлено ✔',
+    loadingLetter: 'Загружаю письмо…',
+    cleared: 'Ящик очищен ✔',
+    clearConfirm: 'Удалить все письма в этом ящике?',
+    resetConfirm: 'Забыть сессию и ящик в этом браузере?',
+    copiedAddr: 'Адрес скопирован ✔',
+    copiedState: 'Скопировано ✔',
+    copiedScript: 'Скрипт скопирован — вставьте в консоль F12 на mail.chatgpt.org.uk ✔',
+    scriptFail: 'Не удалось загрузить скрипт: ',
+    clipFail: 'Буфер обмена недоступен: ',
+    pastedHint: 'Вставлено в поле верификации — нажмите «проверить / сохранить».',
+    stateSaved: 'State сохранён ✔',
+    verified: 'Верификация пройдена ✔ сессия на ~24 ч',
+    resetDone: 'Сброшено.',
+    empty: '— пусто —',
+    sessNone: 'сессия: нет',
+    sessNo: 'сессия: без верификации',
+    sessYes: 'сессия: verified',
+    letters: 'писем',
+    noSubject: '(без темы)',
+    noFrom: '(без отправителя)',
+    errPrefix: 'Ошибка: ',
+    noMailId: 'У письма нет id.',
+  },
+};
+let LANG = "en";
+
+function t(key) { return (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key; }
+
+function applyLang() {
+  document.documentElement.lang = LANG;
+  document.querySelectorAll("[data-i]").forEach((el) => { el.innerHTML = t(el.dataset.i); });
+  document.querySelectorAll("[data-i-ph]").forEach((el) => { el.placeholder = t(el.dataset.iPh); });
+  document.getElementById("langEN").classList.toggle("cur", LANG === "en");
+  document.getElementById("langRU").classList.toggle("cur", LANG === "ru");
+  document.title = LANG === "ru" ? "gptmail · панель API" : "gptmail · api panel";
+  renderState();
+}
 
 const $ = (id) => document.getElementById(id);
 const setStatus = (id, text, cls) => { const el = $(id); el.textContent = text || ""; el.className = "status " + (cls || ""); };
@@ -183,7 +366,7 @@ async function api(path, body) {
   try { data = await resp.json(); } catch (e) { data = null; }
   if (resp.status === 428 || (data && data.error === "browser_verification_required")) {
     $("secVerify").classList.remove("hidden");
-    setStatus("verifyStatus", "Требуется верификация браузера (428). Получите токен скриптом и вставьте выше.", "warn");
+    setStatus("verifyStatus", t("needVerify"), "warn");
     throw new Error("browser_verification_required");
   }
   if (!resp.ok) throw new Error((data && (data.detail || data.error)) || "HTTP " + resp.status);
@@ -192,24 +375,23 @@ async function api(path, body) {
 }
 
 function saveState() {
-  if (STATE) localStorage.setItem(LS_KEY, JSON.stringify(STATE));
-  else localStorage.removeItem(LS_KEY);
+  if (STATE) localStorage.setItem(LS_STATE, JSON.stringify(STATE));
+  else localStorage.removeItem(LS_STATE);
   renderState();
 }
 
 function renderState() {
   const pill = $("sessPill");
-  $("stateView").textContent = STATE ? JSON.stringify(STATE, null, 2) : "— пусто —";
+  $("stateView").textContent = STATE ? JSON.stringify(STATE, null, 2) : t("empty");
   if (STATE) {
-    const exp = STATE.auth && STATE.auth.expires_at ? STATE.auth.expires_at : 0;
-    const hasVerified = (STATE.cookies || []).some(c => c.name === "gm_browser_verified");
-    pill.textContent = "сессия: " + (hasVerified ? "verified" : "без верификации");
+    const hasVerified = (STATE.cookies || []).some((c) => c.name === "gm_browser_verified");
+    pill.textContent = hasVerified ? t("sessYes") : t("sessNo");
     pill.className = "pill " + (hasVerified ? "on" : "off");
     $("mailAddr").textContent = STATE.last_email || "—";
     $("mailboxBox").classList.toggle("hidden", !STATE.last_email);
     $("noMailbox").classList.toggle("hidden", !!STATE.last_email);
   } else {
-    pill.textContent = "сессия: нет"; pill.className = "pill off";
+    pill.textContent = t("sessNone"); pill.className = "pill off";
     $("mailboxBox").classList.add("hidden");
     $("noMailbox").classList.remove("hidden");
   }
@@ -224,36 +406,36 @@ function copyText(text) {
 }
 
 async function generate() {
-  setStatus("genStatus", "Создаю ящик…");
+  setStatus("genStatus", t("generating"), "warn");
   try {
     const body = { prefix: $("genPrefix").value.trim(), domain: $("genDomain").value.trim() };
     const data = await api("/api/generate", body);
     const r = data.result || {};
     $("mailAddr").textContent = r.email || "";
     const id = r.identity || {};
-    $("mailIdentity").textContent = id.full_name ? ("личность: " + id.full_name + (id.username ? " · " + id.username : "")) : "";
-    setStatus("genStatus", "Ящик готов ✔", "ok");
+    $("mailIdentity").textContent = id.full_name ? (t("identityLabel") + id.full_name + (id.username ? " · " + id.username : "")) : "";
+    setStatus("genStatus", t("mailboxReady"), "ok");
     MESSAGES = []; renderInbox(); refreshInbox(true);
   } catch (e) {
-    if (e.message !== "browser_verification_required") setStatus("genStatus", "Ошибка: " + e.message, "err");
+    if (e.message !== "browser_verification_required") setStatus("genStatus", t("errPrefix") + e.message, "err");
   }
 }
 
 async function refreshInbox(silent) {
   if (!STATE || !(STATE.last_email || (STATE.auth && STATE.auth.email))) {
-    setStatus("inboxStatus", "Сначала создайте ящик.", "warn");
+    setStatus("inboxStatus", t("noMailboxYet"), "warn");
     return;
   }
-  if (!silent) setStatus("inboxStatus", "Обновляю…");
+  if (!silent) setStatus("inboxStatus", t("refreshing"), "warn");
   try {
     const data = await api("/api/list");
     const r = data.result || {};
     MESSAGES = r.messages || [];
-    $("inboxMeta").textContent = "— " + (r.count || 0) + " писем";
+    $("inboxMeta").textContent = "— " + (r.count || 0) + " " + t("letters");
     renderInbox();
-    setStatus("inboxStatus", silent ? "" : "Обновлено ✔", "ok");
+    setStatus("inboxStatus", silent ? "" : t("refreshed"), "ok");
   } catch (e) {
-    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", t("errPrefix") + e.message, "err");
   }
 }
 
@@ -261,34 +443,36 @@ function pick(m, keys) { for (const k of keys) { if (m[k] !== undefined && m[k] 
 
 function renderInbox() {
   const box = $("inboxList");
-  if (!MESSAGES.length) { box.innerHTML = '<div class="muted">Писем нет.</div>'; return; }
-  box.innerHTML = "";
+  if (!MESSAGES.length) { box.innerHTML = '<div class="muted">' + t("noLetters") + "</div>"; return; }
+  const table = document.createElement("table");
+  table.className = "inbox";
   MESSAGES.forEach((m, i) => {
-    const div = document.createElement("div");
-    div.className = "msg";
-    const from = pick(m, ["from", "from_address", "email_address", "sender"]);
-    const subj = pick(m, ["subject", "title"]);
-    const date = pick(m, ["date", "received_at", "created_at", "timestamp"]);
-    div.innerHTML = '<div class="from"></div><div class="subj"></div><div class="date"></div>';
-    div.children[0].textContent = from || "(без отправителя)";
-    div.children[1].textContent = subj || "(без темы)";
-    div.children[2].textContent = date || "";
-    div.onclick = () => openMail(i);
-    box.appendChild(div);
+    const tr = document.createElement("tr");
+    const from = String(pick(m, ["from", "from_address", "email_address", "sender"]));
+    const subj = String(pick(m, ["subject", "title"])) || t("noSubject");
+    const date = String(pick(m, ["date", "received_at", "created_at", "timestamp"]));
+    tr.innerHTML = '<td class="s"></td><td class="f"></td><td class="d"></td>';
+    tr.children[0].textContent = subj;
+    tr.children[1].textContent = from.length > 34 ? from.slice(0, 33) + "…" : from;
+    tr.children[2].textContent = date;
+    tr.onclick = () => openMail(i);
+    table.appendChild(tr);
   });
+  box.innerHTML = "";
+  box.appendChild(table);
 }
 
 async function openMail(i) {
   const m = MESSAGES[i];
   const id = pick(m, ["id", "email_id", "uid"]);
-  if (!id) { setStatus("inboxStatus", "У письма нет id.", "err"); return; }
-  setStatus("inboxStatus", "Загружаю письмо…");
+  if (!id) { setStatus("inboxStatus", t("noMailId"), "err"); return; }
+  setStatus("inboxStatus", t("loadingLetter"), "warn");
   try {
     const data = await api("/api/email", { email_id: id });
     const full = (data.result && data.result.message) || m;
-    $("mvSubject").textContent = pick(full, ["subject", "title"]) || "(без темы)";
+    $("mvSubject").textContent = pick(full, ["subject", "title"]) || t("noSubject");
     $("mvMeta").textContent =
-      "от: " + (pick(full, ["from", "from_address", "email_address", "sender"]) || "?") +
+      "from: " + (pick(full, ["from", "from_address", "email_address", "sender"]) || "?") +
       " · " + (pick(full, ["date", "received_at", "created_at"]) || "");
     const html = pick(full, ["html", "body_html", "content_html"]);
     const text = pick(full, ["text", "body", "content", "plain_text", "content_text"]);
@@ -296,12 +480,13 @@ async function openMail(i) {
     bodyEl.innerHTML = "";
     if (html && /<[a-z][\s\S]*>/i.test(html)) {
       const f = document.createElement("iframe");
-      f.className = "mailbody";
+      f.className = "mailhtml";
       f.setAttribute("sandbox", "");
       bodyEl.appendChild(f);
       f.srcdoc = html;
     } else {
       const pre = document.createElement("pre");
+      pre.className = "term";
       pre.textContent = text || JSON.stringify(full, null, 2);
       bodyEl.appendChild(pre);
     }
@@ -310,43 +495,43 @@ async function openMail(i) {
     $("inboxList").classList.add("hidden");
     setStatus("inboxStatus", "");
   } catch (e) {
-    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", t("errPrefix") + e.message, "err");
   }
 }
 
 async function verifyInput() {
   const raw = $("verifyInput").value.trim();
-  if (!raw) { setStatus("verifyStatus", "Вставьте токен или state.", "warn"); return; }
-  setStatus("verifyStatus", "Пробую…");
+  if (!raw) { setStatus("verifyStatus", t("needVerify"), "warn"); return; }
+  setStatus("verifyStatus", t("refreshing"), "warn");
   if (raw.startsWith("{")) {
     try {
       const parsed = JSON.parse(raw);
       STATE = parsed.state || parsed;
       saveState();
-      setStatus("verifyStatus", "State сохранён ✔", "ok");
+      setStatus("verifyStatus", t("stateSaved"), "ok");
       $("verifyInput").value = "";
       refreshInbox(true);
       return;
-    } catch (e) { setStatus("verifyStatus", "Это не JSON и не токен: " + e.message, "err"); return; }
+    } catch (e) { setStatus("verifyStatus", t("errPrefix") + e.message, "err"); return; }
   }
   try {
     await api("/api/verify-browser", { turnstile_token: raw });
-    setStatus("verifyStatus", "Верификация пройдена ✔ сессия на ~24 ч", "ok");
+    setStatus("verifyStatus", t("verified"), "ok");
     $("verifyInput").value = "";
     if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
   } catch (e) {
-    if (e.message !== "browser_verification_required") setStatus("verifyStatus", "Ошибка: " + e.message, "err");
+    if (e.message !== "browser_verification_required") setStatus("verifyStatus", t("errPrefix") + e.message, "err");
   }
 }
 
 async function clearInbox() {
-  if (!confirm("Удалить все письма в этом ящике?")) return;
+  if (!confirm(t("clearConfirm"))) return;
   try {
     await api("/api/clear");
-    setStatus("inboxStatus", "Ящик очищен ✔", "ok");
+    setStatus("inboxStatus", t("cleared"), "ok");
     refreshInbox(true);
   } catch (e) {
-    if (e.message !== "browser_verification_required") setStatus("inboxStatus", "Ошибка: " + e.message, "err");
+    if (e.message !== "browser_verification_required") setStatus("inboxStatus", t("errPrefix") + e.message, "err");
   }
 }
 
@@ -361,33 +546,36 @@ $("btnClear").onclick = clearInbox;
 $("btnVerify").onclick = verifyInput;
 $("btnCloseMail").onclick = () => { $("mailView").classList.add("hidden"); $("inboxList").classList.remove("hidden"); };
 $("autoRefresh").onchange = (e) => setAuto(e.target.checked);
-$("btnCopyMail").onclick = () => copyText($("mailAddr").textContent).then(() => setStatus("genStatus", "Адрес скопирован ✔", "ok"));
-$("btnCopyState").onclick = () => copyText(JSON.stringify({ state: STATE }, null, 2)).then(() => setStatus("stateStatus", "Скопировано ✔", "ok"));
+$("btnCopyMail").onclick = () => copyText($("mailAddr").textContent).then(() => setStatus("genStatus", t("copiedAddr"), "ok"));
+$("btnCopyState").onclick = () => copyText(JSON.stringify({ state: STATE }, null, 2)).then(() => setStatus("stateStatus", t("copiedState"), "ok"));
 $("btnPasteState").onclick = async () => {
   try {
     const text = await navigator.clipboard.readText();
     $("verifyInput").value = text;
     $("secVerify").classList.remove("hidden");
-    setStatus("stateStatus", "Вставлено в поле верификации — нажмите «Проверить / сохранить».", "");
-  } catch (e) { setStatus("stateStatus", "Не удалось прочитать буфер: " + e.message, "err"); }
+    setStatus("stateStatus", t("pastedHint"), "");
+  } catch (e) { setStatus("stateStatus", t("clipFail") + e.message, "err"); }
 };
-$("btnResetState").onclick = () => { if (confirm("Забыть сессию и ящик в этом браузере?")) { STATE = null; saveState(); MESSAGES = []; renderInbox(); setStatus("stateStatus", "Сброшено.", "warn"); } };
+$("btnResetState").onclick = () => { if (confirm(t("resetConfirm"))) { STATE = null; saveState(); MESSAGES = []; renderInbox(); setStatus("stateStatus", t("resetDone"), "warn"); } };
 $("btnCopyScript").onclick = async () => {
   try {
     const resp = await fetch("/tools/gptmail-token.js");
-    const text = await resp.text();
-    await copyText(text);
-    setStatus("verifyStatus", "Скрипт скопирован — вставьте в консоль F12 на mail.chatgpt.org.uk ✔", "ok");
-  } catch (e) { setStatus("verifyStatus", "Не удалось загрузить скрипт: " + e.message, "err"); }
+    await copyText(await resp.text());
+    setStatus("verifyStatus", t("copiedScript"), "ok");
+  } catch (e) { setStatus("verifyStatus", t("scriptFail") + e.message, "err"); }
 };
+$("langEN").onclick = () => { LANG = "en"; localStorage.setItem(LS_LANG, "en"); applyLang(); };
+$("langRU").onclick = () => { LANG = "ru"; localStorage.setItem(LS_LANG, "ru"); applyLang(); };
 
 (async function init() {
+  try { LANG = localStorage.getItem(LS_LANG) || "en"; } catch (e) { LANG = "en"; }
+  applyLang();
   try {
     const r = await fetch("/info");
     const info = await r.json();
-    $("ver").textContent = "v" + info.version + " · sitekey: " + info.turnstile_sitekey;
-  } catch (e) { $("ver").textContent = ""; }
-  try { STATE = JSON.parse(localStorage.getItem(LS_KEY) || "null"); } catch (e) { STATE = null; }
+    $("ftVersion").textContent = "v" + info.version;
+  } catch (e) { $("ftVersion").textContent = ""; }
+  try { STATE = JSON.parse(localStorage.getItem(LS_STATE) || "null"); } catch (e) { STATE = null; }
   renderState();
   if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
   setAuto($("autoRefresh").checked);

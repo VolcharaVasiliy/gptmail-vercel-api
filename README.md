@@ -14,6 +14,8 @@ panel serves there:
 
 - the `state` (verified session + mailbox) is kept in browser localStorage,
   so the panel survives reloads;
+- English by default, with an `en / ru` switcher in the header (the choice
+  persists per browser);
 - when a call hits `428 browser_verification_required`, the panel opens the
   verification section by itself: click "Скопировать консольный скрипт",
   paste it into the F12 console on mail.chatgpt.org.uk, then paste the
