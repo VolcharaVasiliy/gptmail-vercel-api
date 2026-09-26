@@ -85,6 +85,25 @@
   .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   @media (max-width: 620px) { .cols { grid-template-columns: 1fr; } }
 
+  /* domain picker */
+  .domainbox { position: relative; }
+  .dropdown {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 50;
+    width: 280px; max-width: 84vw;
+    background: var(--bg); border: 1px solid var(--ink); border-radius: var(--radius);
+    box-shadow: 0 8px 24px rgba(0,0,0,.14); padding: 8px;
+  }
+  .dropdown .dhead { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+  .dlist { max-height: 220px; overflow: auto; }
+  .drow {
+    padding: 5px 8px; border-radius: 5px; cursor: pointer; font-size: 12.5px;
+    display: flex; justify-content: space-between; gap: 8px;
+  }
+  .drow:hover { background: var(--wash); }
+  .drow.sel { color: var(--ok); }
+  .drow.any { color: var(--muted); border-bottom: 1px solid var(--rule); border-radius: 0; margin-bottom: 4px; }
+  .dempty { padding: 8px; color: var(--faint); font-size: 12px; }
+
   .addrbox {
     display: flex; align-items: center; gap: 10px;
     background: var(--wash); border: 1px solid var(--rule);
@@ -159,13 +178,19 @@
       </div>
       <div class="faint" id="mailIdentity"></div>
     </div>
-    <details style="margin-top:10px" id="genOpts">
-      <summary data-i="genOpts">custom prefix / domain (optional)</summary>
-      <div class="cols" style="margin-top:8px">
-        <input id="genPrefix" data-i-ph="genPrefix">
-        <input id="genDomain" data-i-ph="genDomain">
+    <div class="row" style="margin-top:12px">
+      <div class="domainbox">
+        <button class="act" id="btnDomain" data-i="domainAny">domain: any</button>
+        <div class="dropdown hidden" id="domainMenu">
+          <div class="dhead">
+            <input id="domainSearch" data-i-ph="searchDomainPh" autocomplete="off">
+            <button class="mini" id="btnDomainsRefresh" title="refresh">⟳</button>
+          </div>
+          <div class="dlist" id="domainList"></div>
+        </div>
       </div>
-    </details>
+      <input id="genPrefix" class="grow" style="flex:1; min-width:180px" data-i-ph="genPrefix">
+    </div>
     <div class="row" style="margin-top:12px">
       <button class="act primary" id="btnGenerate" data-i="generateBtn">create mailbox</button>
       <span class="faint" data-i="generateHint"></span>
@@ -216,25 +241,34 @@
 "use strict";
 const LS_STATE = "gptmail_vercel_api_state";
 const LS_LANG = "gptmail_panel_lang";
+const LS_DOMAIN = "gptmail_chosen_domain";
+const LS_DOMAINS = "gptmail_domains_cache";
 let STATE = null;
 let TIMER = null;
 let MESSAGES = [];
+let DOMAINS = [];
+let DOMAINS_LOADED = false;
+let CHOSEN_DOMAIN = "";
+let BOOTSTRAP_BUSY = false;
 
 const I18N = {
   en: {
     verifyTitle: 'Browser verification <small>— required once every ~24 h</small>',
-    verifyHelp: 'GPTMail gates mailbox creation behind a Cloudflare Turnstile check a server cannot pass. Open <b>mail.chatgpt.org.uk</b>, press F12 → Console, paste the script (the button below copies it), and put the resulting token here. A full ready-made "state" also works.',
+    verifyHelp: 'GPTMail gated this call behind its Cloudflare check, which a server cannot pass. Open <b>mail.chatgpt.org.uk</b>, press F12 → Console, paste the script (the button below copies it), and put the resulting token here. After that the session lives ~24 h without further steps.',
     copyScript: 'copy console script',
     copyScriptHint: 'paste it into the F12 console on mail.chatgpt.org.uk',
     verifyPlaceholder: 'Turnstile token (0.zgk...) OR the whole state JSON',
     verifyBtn: 'verify / save',
     mailboxTitle: 'Mailbox',
     noMailbox: 'No mailbox yet.',
-    genOpts: 'custom prefix / domain (optional)',
     genPrefix: 'prefix, e.g. ivanov2026',
-    genDomain: 'domain, e.g. busmail.app',
+    domainAny: 'domain: any',
+    searchDomainPh: 'search or type a domain…',
+    useCustom: 'use',
+    loadingDomains: 'loading domains…',
+    domainsError: 'failed to load domains',
     generateBtn: 'create mailbox',
-    generateHint: 'name comes from the site identity generator, domain is a random active one',
+    generateHint: 'name comes from the site identity generator',
     inboxTitle: 'Inbox',
     refreshBtn: 'refresh',
     autoRefresh: 'auto (15 s)',
@@ -248,12 +282,14 @@ const I18N = {
     resetState: 'reset',
     showState: 'show state',
     sessionHint: 'For API calls outside this panel, use the copied object as the request body: {"state": ...}',
-    footerNote: 'stateless GPTMail proxy · sessions stay with the caller',
+    footerNote: 'stateless GPTMail proxy · session (token + cookie) is taken on open and lasts ~24 h',
     needVerify: 'Verification required (428). Get a token with the script above.',
     noMailboxYet: 'Create a mailbox first.',
     generating: 'Creating mailbox…',
     mailboxReady: 'Mailbox ready ✔',
     identityLabel: 'identity: ',
+    bootstrapping: 'Restoring session…',
+    sessionReady: 'Session ready ✔ lasts ~24 h',
     refreshing: 'Refreshing…',
     refreshed: 'Refreshed ✔',
     loadingLetter: 'Loading letter…',
@@ -273,6 +309,8 @@ const I18N = {
     sessNone: 'session: none',
     sessNo: 'session: unverified',
     sessYes: 'session: verified',
+    sessUntil: 'session until {time}',
+    sessExpired: 'session expired',
     letters: 'letters',
     noSubject: '(no subject)',
     noFrom: '(no sender)',
@@ -281,18 +319,21 @@ const I18N = {
   },
   ru: {
     verifyTitle: 'Верификация браузера <small>— нужна раз в сутки (~24 ч)</small>',
-    verifyHelp: 'GPTMail закрывает создание ящиков капчей Cloudflare, которую сервер пройти не может. Откройте <b>mail.chatgpt.org.uk</b>, нажмите F12 → Console, вставьте скрипт (кнопка ниже копирует его в буфер) и внесите полученный токен сюда. Также можно вставить готовый "state".',
+    verifyHelp: 'GPTMail закрыл этот запрос своей капчей Cloudflare, которую сервер пройти не может. Откройте <b>mail.chatgpt.org.uk</b>, нажмите F12 → Console, вставьте скрипт (кнопка ниже копирует его в буфер) и внесите полученный токен сюда. После этого сессия живёт ~24 ч без лишних шагов.',
     copyScript: 'скопировать консольный скрипт',
     copyScriptHint: 'вставить в консоль F12 на mail.chatgpt.org.uk',
     verifyPlaceholder: 'Turnstile-токен (0.zgk...) ИЛИ весь state JSON',
     verifyBtn: 'проверить / сохранить',
     mailboxTitle: 'Почтовый ящик',
     noMailbox: 'Ящик ещё не создан.',
-    genOpts: 'свой префикс / домен (необязательно)',
     genPrefix: 'префикс, напр. ivanov2026',
-    genDomain: 'домен, напр. busmail.app',
+    domainAny: 'домен: любой',
+    searchDomainPh: 'поиск или свой домен…',
+    useCustom: 'использовать',
+    loadingDomains: 'загружаю домены…',
+    domainsError: 'не удалось загрузить домены',
     generateBtn: 'создать ящик',
-    generateHint: 'имя берётся из генератора личностей сайта, домен — случайный активный',
+    generateHint: 'имя берётся из генератора личностей сайта',
     inboxTitle: 'Входящие',
     refreshBtn: 'обновить',
     autoRefresh: 'авто (15 с)',
@@ -306,12 +347,14 @@ const I18N = {
     resetState: 'сбросить',
     showState: 'показать state',
     sessionHint: 'Для запросов к API вне этой панели используйте скопированный объект как тело запроса: {"state": ...}',
-    footerNote: 'stateless-прокси GPTMail · сессии остаются у вызывающего',
+    footerNote: 'stateless-прокси GPTMail · токен и кука берутся при открытии и живут ~24 ч',
     needVerify: 'Требуется верификация (428). Получите токен скриптом выше.',
     noMailboxYet: 'Сначала создайте ящик.',
     generating: 'Создаю ящик…',
     mailboxReady: 'Ящик готов ✔',
     identityLabel: 'личность: ',
+    bootstrapping: 'Восстанавливаю сессию…',
+    sessionReady: 'Сессия готова ✔ живёт ~24 ч',
     refreshing: 'Обновляю…',
     refreshed: 'Обновлено ✔',
     loadingLetter: 'Загружаю письмо…',
@@ -331,6 +374,8 @@ const I18N = {
     sessNone: 'сессия: нет',
     sessNo: 'сессия: без верификации',
     sessYes: 'сессия: verified',
+    sessUntil: 'сессия до {time}',
+    sessExpired: 'сессия истекла',
     letters: 'писем',
     noSubject: '(без темы)',
     noFrom: '(без отправителя)',
@@ -350,6 +395,7 @@ function applyLang() {
   document.getElementById("langRU").classList.toggle("cur", LANG === "ru");
   document.title = LANG === "ru" ? "gptmail · панель API" : "gptmail · api panel";
   renderState();
+  renderDomainButton();
 }
 
 const $ = (id) => document.getElementById(id);
@@ -380,21 +426,37 @@ function saveState() {
   renderState();
 }
 
+function fmtTime(ts) {
+  try {
+    return new Date(ts * 1000).toLocaleTimeString(LANG === "ru" ? "ru-RU" : "en-GB", { hour: "2-digit", minute: "2-digit" });
+  } catch (e) { return "?"; }
+}
+
 function renderState() {
   const pill = $("sessPill");
   $("stateView").textContent = STATE ? JSON.stringify(STATE, null, 2) : t("empty");
-  if (STATE) {
-    const hasVerified = (STATE.cookies || []).some((c) => c.name === "gm_browser_verified");
-    pill.textContent = hasVerified ? t("sessYes") : t("sessNo");
-    pill.className = "pill " + (hasVerified ? "on" : "off");
-    $("mailAddr").textContent = STATE.last_email || "—";
-    $("mailboxBox").classList.toggle("hidden", !STATE.last_email);
-    $("noMailbox").classList.toggle("hidden", !!STATE.last_email);
-  } else {
+  const hasVerified = !!(STATE && (STATE.cookies || []).some((c) => c.name === "gm_browser_verified"));
+  if (!STATE) {
     pill.textContent = t("sessNone"); pill.className = "pill off";
-    $("mailboxBox").classList.add("hidden");
-    $("noMailbox").classList.remove("hidden");
+  } else if (hasVerified) {
+    const until = (() => {
+      const c = (STATE.cookies || []).find((c) => c.name === "gm_browser_verified");
+      return c && c.expires ? Number(c.expires) : 0;
+    })();
+    if (until && until * 1000 < Date.now()) {
+      pill.textContent = t("sessExpired"); pill.className = "pill off";
+    } else if (until) {
+      pill.textContent = t("sessUntil").replace("{time}", fmtTime(until)); pill.className = "pill on";
+    } else {
+      pill.textContent = t("sessYes"); pill.className = "pill on";
+    }
+  } else {
+    pill.textContent = t("sessNo"); pill.className = "pill off";
   }
+  const email = STATE ? (STATE.last_email || (STATE.auth && STATE.auth.email) || "") : "";
+  $("mailAddr").textContent = email || "—";
+  $("mailboxBox").classList.toggle("hidden", !email);
+  $("noMailbox").classList.toggle("hidden", !!email);
 }
 
 function copyText(text) {
@@ -405,10 +467,101 @@ function copyText(text) {
   return Promise.resolve();
 }
 
+// -- session bootstrap (on open): token + cookie, ~24 h -----------------------
+
+async function bootstrap() {
+  if (BOOTSTRAP_BUSY) return;
+  BOOTSTRAP_BUSY = true;
+  setStatus("verifyStatus", t("bootstrapping"), "warn");
+  try {
+    const data = await api("/api/bootstrap", {});
+    const r = data.result || {};
+    $("secVerify").classList.add("hidden");
+    setStatus("verifyStatus", t("sessionReady"), "ok");
+    if (r.email) renderState();
+  } catch (e) {
+    if (e.message !== "browser_verification_required") setStatus("verifyStatus", t("errPrefix") + e.message, "err");
+  } finally {
+    BOOTSTRAP_BUSY = false;
+  }
+}
+
+// -- domain picker -------------------------------------------------------------
+
+function renderDomainButton() {
+  $("btnDomain").textContent = CHOSEN_DOMAIN ? (LANG === "ru" ? "домен: " : "domain: ") + CHOSEN_DOMAIN : t("domainAny");
+}
+
+function renderDomainList() {
+  const box = $("domainList");
+  const q = $("domainSearch").value.trim().toLowerCase();
+  box.innerHTML = "";
+
+  const anyRow = document.createElement("div");
+  anyRow.className = "drow any" + (CHOSEN_DOMAIN ? "" : " sel");
+  anyRow.textContent = LANG === "ru" ? "любой (случайный)" : "any (random)";
+  anyRow.onclick = () => { CHOSEN_DOMAIN = ""; localStorage.setItem(LS_DOMAIN, ""); closeDomainMenu(); renderDomainButton(); };
+  box.appendChild(anyRow);
+
+  const items = DOMAINS.filter((d) => !q || d.includes(q));
+  items.forEach((d) => {
+    const row = document.createElement("div");
+    row.className = "drow" + (CHOSEN_DOMAIN === d ? " sel" : "");
+    row.textContent = d;
+    row.onclick = () => { CHOSEN_DOMAIN = d; localStorage.setItem(LS_DOMAIN, d); closeDomainMenu(); renderDomainButton(); };
+    box.appendChild(row);
+  });
+
+  const custom = q.replace(/[^a-z0-9.\-]/g, "");
+  if (custom && !items.includes(custom)) {
+    const row = document.createElement("div");
+    row.className = "drow";
+    row.innerHTML = "<span>" + t("useCustom") + " «<b></b>»</span>";
+    row.querySelector("b").textContent = custom;
+    row.onclick = () => { CHOSEN_DOMAIN = custom; localStorage.setItem(LS_DOMAIN, custom); closeDomainMenu(); renderDomainButton(); };
+    box.appendChild(row);
+  }
+  if (!items.length && !custom) box.appendChild(Object.assign(document.createElement("div"), { className: "dempty", textContent: DOMAINS_LOADED ? t("domainsError") : t("loadingDomains") }));
+}
+
+function openDomainMenu() {
+  $("domainMenu").classList.remove("hidden");
+  if (!DOMAINS_LOADED) loadDomains();
+  renderDomainList();
+  $("domainSearch").focus();
+}
+
+function closeDomainMenu() { $("domainMenu").classList.add("hidden"); }
+
+async function loadDomains(force) {
+  if (DOMAINS_LOADED && !force) return;
+  // instant paint from cache (max 24 h old), then refresh in background
+  try {
+    const cached = JSON.parse(localStorage.getItem(LS_DOMAINS) || "null");
+    if (cached && cached.ts && Date.now() - cached.ts < 24 * 3600 * 1000 && cached.list?.length) {
+      DOMAINS = cached.list; DOMAINS_LOADED = true; renderDomainList();
+    }
+  } catch (e) { /* no cache */ }
+  try {
+    const resp = await fetch("/api/domains");
+    const data = await resp.json();
+    if (!resp.ok || !data.ok) throw new Error(data.detail || "HTTP " + resp.status);
+    const payload = data.result || data;
+    DOMAINS = payload.domains || [];
+    DOMAINS_LOADED = true;
+    localStorage.setItem(LS_DOMAINS, JSON.stringify({ ts: Date.now(), list: DOMAINS }));
+  } catch (e) {
+    if (!DOMAINS_LOADED) DOMAINS_LOADED = false;
+  }
+  renderDomainList();
+}
+
+// -- mailbox / inbox ------------------------------------------------------------
+
 async function generate() {
   setStatus("genStatus", t("generating"), "warn");
   try {
-    const body = { prefix: $("genPrefix").value.trim(), domain: $("genDomain").value.trim() };
+    const body = { prefix: $("genPrefix").value.trim(), domain: CHOSEN_DOMAIN };
     const data = await api("/api/generate", body);
     const r = data.result || {};
     $("mailAddr").textContent = r.email || "";
@@ -510,7 +663,7 @@ async function verifyInput() {
       saveState();
       setStatus("verifyStatus", t("stateSaved"), "ok");
       $("verifyInput").value = "";
-      refreshInbox(true);
+      bootstrap();
       return;
     } catch (e) { setStatus("verifyStatus", t("errPrefix") + e.message, "err"); return; }
   }
@@ -518,7 +671,7 @@ async function verifyInput() {
     await api("/api/verify-browser", { turnstile_token: raw });
     setStatus("verifyStatus", t("verified"), "ok");
     $("verifyInput").value = "";
-    if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
+    await bootstrap();
   } catch (e) {
     if (e.message !== "browser_verification_required") setStatus("verifyStatus", t("errPrefix") + e.message, "err");
   }
@@ -564,11 +717,23 @@ $("btnCopyScript").onclick = async () => {
     setStatus("verifyStatus", t("copiedScript"), "ok");
   } catch (e) { setStatus("verifyStatus", t("scriptFail") + e.message, "err"); }
 };
+$("btnDomain").onclick = (e) => {
+  e.stopPropagation();
+  const menu = $("domainMenu");
+  if (menu.classList.contains("hidden")) openDomainMenu(); else closeDomainMenu();
+};
+$("btnDomainsRefresh").onclick = (e) => { e.stopPropagation(); DOMAINS_LOADED = false; loadDomains(true); };
+$("domainSearch").oninput = renderDomainList;
+$("domainSearch").onclick = (e) => e.stopPropagation();
+document.addEventListener("click", (e) => {
+  if (!$("domainMenu").classList.contains("hidden") && !e.target.closest(".domainbox")) closeDomainMenu();
+});
 $("langEN").onclick = () => { LANG = "en"; localStorage.setItem(LS_LANG, "en"); applyLang(); };
 $("langRU").onclick = () => { LANG = "ru"; localStorage.setItem(LS_LANG, "ru"); applyLang(); };
 
 (async function init() {
   try { LANG = localStorage.getItem(LS_LANG) || "en"; } catch (e) { LANG = "en"; }
+  try { CHOSEN_DOMAIN = localStorage.getItem(LS_DOMAIN) || ""; } catch (e) { CHOSEN_DOMAIN = ""; }
   applyLang();
   try {
     const r = await fetch("/info");
@@ -577,7 +742,10 @@ $("langRU").onclick = () => { LANG = "ru"; localStorage.setItem(LS_LANG, "ru"); 
   } catch (e) { $("ftVersion").textContent = ""; }
   try { STATE = JSON.parse(localStorage.getItem(LS_STATE) || "null"); } catch (e) { STATE = null; }
   renderState();
-  if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
+  // on open: take the token + verified cookie (~24 h) automatically
+  bootstrap().then(() => {
+    if (STATE && (STATE.last_email || (STATE.auth && STATE.auth.email))) refreshInbox(true);
+  });
   setAuto($("autoRefresh").checked);
 })();
 </script>

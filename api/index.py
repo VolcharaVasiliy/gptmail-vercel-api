@@ -3,12 +3,11 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, JSONResponse, Response
-from pydantic import BaseModel, Field
+from fastapi.responses import JSONResponse, Response
+from pydantic import BaseModel
 
 from gptmail_api import (
     DEFAULT_BASE_URL,
@@ -18,7 +17,7 @@ from gptmail_api import (
     GptMailClient,
 )
 
-app = FastAPI(title="GPTMail Vercel API", version="0.2.0")
+app = FastAPI(title="GPTMail Vercel API", version="0.3.0")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -44,7 +43,7 @@ class BaseRequest(BaseModel):
     base_url: str = DEFAULT_BASE_URL
     language: str = DEFAULT_LANGUAGE
     timeout: float = 20.0
-    network_attempts: int = Field(default=4, ge=1, le=10)
+    network_attempts: int = 3
 
 
 class GenerateRequest(BaseRequest):
@@ -70,36 +69,23 @@ def require_api_bearer(authorization: str | None) -> None:
 
 
 def build_client(request: BaseRequest) -> GptMailClient:
-    sitekey = turnstile_sitekey()
-    if request.state:
-        client = GptMailClient.from_state_payload(
-            request.state,
-            timeout=request.timeout,
-            turnstile_sitekey=sitekey,
-        )
-        client.base_url = str(request.base_url or client.base_url).rstrip("/")
-        client.language = str(request.language or client.language)
-        client.timeout = float(request.timeout)
-        client.network_attempts = max(1, int(request.network_attempts))
-    else:
-        client = GptMailClient(
-            base_url=request.base_url,
-            language=request.language,
-            timeout=request.timeout,
-            network_attempts=request.network_attempts,
-            turnstile_sitekey=sitekey,
-        )
-
+    client = GptMailClient.from_state(
+        request.state,
+        base_url=request.base_url or DEFAULT_BASE_URL,
+        language=request.language or DEFAULT_LANGUAGE,
+        timeout=float(request.timeout or 20.0),
+        network_attempts=int(request.network_attempts or 3),
+        turnstile_sitekey=turnstile_sitekey(),
+    )
     # Allow callers to seed a verified browser session without the full state:
     # paste cookies (e.g. gm_browser_verified / gm_sid) straight into the request.
-    host = str(urlsplit(client.base_url).hostname or "")
     for cookie in request.cookies or []:
         if not isinstance(cookie, dict) or not cookie.get("name"):
             continue
         client.session.cookies.set(
             str(cookie["name"]),
             str(cookie.get("value") or ""),
-            domain=str(cookie.get("domain") or host),
+            domain=str(cookie.get("domain") or client.base_url),
             path=str(cookie.get("path") or "/"),
         )
     return client
@@ -114,14 +100,6 @@ class VerificationNeeded(Exception):
         self.client = client
 
 
-def response_payload(*, client: GptMailClient, result: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "ok": True,
-        "result": result,
-        "state": client.export_state().as_dict(),
-    }
-
-
 def verification_response(client: GptMailClient, exc: BrowserVerificationRequired) -> JSONResponse:
     return JSONResponse(
         status_code=428,
@@ -131,33 +109,25 @@ def verification_response(client: GptMailClient, exc: BrowserVerificationRequire
             "detail": str(exc),
             "turnstile_sitekey": exc.sitekey or turnstile_sitekey(),
             "hint": (
-                "Render a Cloudflare Turnstile widget with this sitekey (action "
-                "'inbox_browser_verification'), then POST the token to /api/verify-browser, "
-                "or seed the request with a gm_browser_verified cookie copied from "
-                "mail.chatgpt.org.uk. The updated cookies come back in 'state'."
+                "Open mail.chatgpt.org.uk, run the console script from "
+                "/tools/gptmail-token.js (the panel copies it for you) and POST "
+                "the token to /api/verify-browser. The session then lives ~24 h."
             ),
-            "state": client.export_state().as_dict(),
+            "state": client.export_state(),
         },
     )
 
 
-def run(client: GptMailClient, action) -> dict[str, Any]:
+def handle(client: GptMailClient, action) -> Any:
     try:
-        return action()
+        result = action()
     except BrowserVerificationRequired as exc:
-        raise VerificationNeeded(exc, client) from exc
+        return verification_response(client, exc)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except RuntimeError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-
-
-def handle(client: GptMailClient, action) -> Any:
-    try:
-        result = run(client, action)
-    except VerificationNeeded as signal:
-        return verification_response(signal.client, signal.exc)
-    return response_payload(client=client, result=result)
+    return {"ok": True, "result": result, "state": client.export_state()}
 
 
 def _serve_project_file(relative_path: str, media_type: str) -> Response:
@@ -183,18 +153,14 @@ def root() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "gptmail-vercel-api",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "auth_enabled": bool(str(os.getenv("API_BEARER_TOKEN") or "").strip()),
         "turnstile_sitekey": turnstile_sitekey(),
-        "browser_verification": (
-            "GPTMail requires a verified browser session. Render a Turnstile widget "
-            "(action 'inbox_browser_verification') and POST the token to /api/verify-browser, "
-            "or send a gm_browser_verified cookie in 'cookies'/'state'."
-        ),
         "endpoints": [
             "/health",
+            "/api/bootstrap",
+            "/api/domains",
             "/api/verify-browser",
-            "/api/refresh-auth",
             "/api/generate",
             "/api/list",
             "/api/email",
@@ -208,18 +174,45 @@ def health() -> dict[str, Any]:
     return {"ok": True}
 
 
+@app.post("/api/bootstrap")
+def bootstrap(request: BaseRequest, authorization: str | None = Header(default=None)) -> Any:
+    """Open-the-panel call: return a session that lives ~24 h.
+
+    Reuses the stored token/cookies when they are still valid; otherwise
+    issues a fresh inbox token (and carries the verified-session cookie that
+    lasts ~24 h inside the returned state).
+    """
+    require_api_bearer(authorization)
+    client = build_client(request)
+
+    def action() -> dict[str, Any]:
+        if client.should_refresh():
+            client.refresh_auth()
+        return {
+            "verified": True,
+            "email": client.last_email or client.token_email,
+            "expires_at": client.expires_at,
+            "valid_until": client.verified_until(),
+        }
+
+    return handle(client, action)
+
+
+@app.get("/api/domains")
+def public_domains(
+    language: str = DEFAULT_LANGUAGE, authorization: str | None = Header(default=None)
+) -> Any:
+    """Active public domains for the panel's domain picker."""
+    require_api_bearer(authorization)
+    client = GptMailClient(language=language or DEFAULT_LANGUAGE, turnstile_sitekey=turnstile_sitekey())
+    return handle(client, lambda: {"domains": client.list_domains()})
+
+
 @app.post("/api/verify-browser")
 def verify_browser(request: BaseRequest, authorization: str | None = Header(default=None)) -> Any:
     require_api_bearer(authorization)
     client = build_client(request)
     return handle(client, lambda: {"verified": True, "raw": client.verify_browser(request.turnstile_token)})
-
-
-@app.post("/api/refresh-auth")
-def refresh_auth(request: EmailRequest, authorization: str | None = Header(default=None)) -> Any:
-    require_api_bearer(authorization)
-    client = build_client(request)
-    return handle(client, lambda: client.refresh_auth(request.email or None))
 
 
 @app.post("/api/generate")
