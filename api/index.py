@@ -17,7 +17,7 @@ from gptmail_api import (
     GptMailClient,
 )
 
-app = FastAPI(title="GPTMail Vercel API", version="0.3.0")
+app = FastAPI(title="GPTMail Vercel API", version="0.3.1")
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -153,7 +153,7 @@ def root() -> dict[str, Any]:
     return {
         "ok": True,
         "service": "gptmail-vercel-api",
-        "version": "0.3.0",
+        "version": "0.3.1",
         "auth_enabled": bool(str(os.getenv("API_BEARER_TOKEN") or "").strip()),
         "turnstile_sitekey": turnstile_sitekey(),
         "endpoints": [

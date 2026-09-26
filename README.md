@@ -46,7 +46,9 @@ This project keeps Vercel stateless and the client thin:
 
 ## GPTMail protocol (short version)
 
-- Active public domains: `GET /api/domains/public?view=bootstrap` (paginated).
+- Active public domains: `GET /api/domains/status` — the FULL pool (1351+,
+  the same source the site's own domain list uses); `view=bootstrap` is only
+  a 32-domain showcase and serves as fallback.
 - A mailbox is claimed with `POST /api/inbox-token` (`email`,
   `include_emails`); the address itself is composed from
   `GET /api/generate-identity` + a chosen domain.

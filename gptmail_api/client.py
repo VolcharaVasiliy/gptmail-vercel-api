@@ -284,8 +284,31 @@ class GptMailClient:
         return payload
 
     def list_domains(self) -> list[str]:
-        domains: list[str] = []
+        """All active public domains.
+
+        The site's own "site domains" page pulls the FULL pool (1351+) from
+        /api/domains/status (public, no session needed); /api/domains/public
+        ?view=bootstrap is a 32-domain showcase and is kept only as fallback.
+        """
+        try:
+            result = self._request(
+                "GET",
+                "/api/domains/status",
+                params={"t": int(time.time() * 1000)},
+                require_auth=False,
+                retry_on_auth_error=False,
+            )
+        except RuntimeError:
+            result = {}
+        domains = self._parse_domain_items(
+            (result.get("data") or {}).get("domains") if isinstance(result.get("data"), dict) else None
+        )
+        if domains:
+            return domains
+
+        # fallback: bootstrap showcase
         seen: set[str] = set()
+        domains = []
         # The site paginates bootstrap domains; these query variants cover it.
         for query in (
             {"view": "bootstrap"},
@@ -304,18 +327,26 @@ class GptMailClient:
                 break
             items = ((result.get("data") or {}).get("domains")) or []
             before = len(seen)
-            for item in items:
-                if isinstance(item, dict):
-                    if item.get("is_active") in (0, False):
-                        continue
-                    name = str(item.get("domain_name") or "").strip().lower()
-                else:
-                    name = str(item or "").strip().lower()
-                if name and "." in name and name not in seen:
+            for name in self._parse_domain_items(items):
+                if name not in seen:
                     seen.add(name)
                     domains.append(name)
             if len(seen) == before:
                 break
+        return domains
+
+    @staticmethod
+    def _parse_domain_items(items: Any) -> list[str]:
+        domains: list[str] = []
+        for item in items or []:
+            if isinstance(item, dict):
+                if item.get("is_active") in (0, False):
+                    continue
+                name = str(item.get("domain_name") or "").strip().lower()
+            else:
+                name = str(item or "").strip().lower()
+            if name and "." in name:
+                domains.append(name)
         return domains
 
     def generate_email(
